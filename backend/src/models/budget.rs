@@ -34,6 +34,8 @@ pub struct CategoryRow {
     pub emoji: String,
     pub kind: String,
     pub bucket: Option<String>,
+    /// Planned per month; None if not planned.
+    pub planned_monthly_cents: Option<i64>,
     /// Money out of personal accounts in this category during the period.
     pub actual_cents: i64,
 }
@@ -70,6 +72,7 @@ pub async fn budget(db: &SqlitePool, start: &str, end: &str) -> sqlx::Result<Bud
 
     let categories: Vec<CategoryRow> = sqlx::query_as(&format!(
         "SELECT cat.id, cat.name, cat.emoji, cat.kind, cat.bucket,
+                (SELECT monthly_cents FROM budget_category_plans WHERE category_id = cat.id) AS planned_monthly_cents,
                 COALESCE((SELECT SUM(-t.amount_cents) FROM transactions t JOIN accounts a ON a.id = t.account_id {CATEGORY_JOIN}
                           WHERE c.id = cat.id AND a.business_id IS NULL AND t.amount_cents < 0 AND t.date >= ?1 AND t.date <= ?2), 0) AS actual_cents
          FROM categories cat WHERE cat.kind != 'income'
@@ -99,6 +102,41 @@ pub async fn set_percentages(db: &SqlitePool, p: Percentages) -> Result<Percenta
         .execute(db)
         .await?;
     Ok(p)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CategoryPlan {
+    pub category_id: i64,
+    /// None removes the plan.
+    pub monthly_cents: Option<i64>,
+}
+
+/// Sets (or with None, removes) the planned monthly spending for a category.
+pub async fn set_category_plan(db: &SqlitePool, plan: &CategoryPlan) -> Result<(), BusinessError> {
+    let kind: Option<String> = sqlx::query_scalar("SELECT kind FROM categories WHERE id = ?").bind(plan.category_id).fetch_optional(db).await?;
+    match kind.as_deref() {
+        None => return Err(BusinessError::NotFound),
+        Some("income") => return Err(BusinessError::Invalid("plan income on the income table, not as a category")),
+        Some(_) => {}
+    }
+    match plan.monthly_cents {
+        Some(c) if c < 0 => Err(BusinessError::Invalid("planned spending can't be negative")),
+        Some(c) => {
+            sqlx::query(
+                "INSERT INTO budget_category_plans (category_id, monthly_cents) VALUES (?, ?)
+                 ON CONFLICT(category_id) DO UPDATE SET monthly_cents = excluded.monthly_cents",
+            )
+            .bind(plan.category_id)
+            .bind(c)
+            .execute(db)
+            .await?;
+            Ok(())
+        }
+        None => {
+            sqlx::query("DELETE FROM budget_category_plans WHERE category_id = ?").bind(plan.category_id).execute(db).await?;
+            Ok(())
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -180,6 +218,18 @@ mod tests {
         assert!(b.categories.iter().all(|c| c.kind != "income"), "income categories aren't budgeted");
         let card = b.categories.iter().find(|c| c.name == "Card & loan payments").unwrap();
         assert_eq!((card.bucket.as_deref(), card.actual_cents), (None, 20000));
+
+        // Category plans: set, read back, reject income categories and negatives, remove.
+        let rent = b.categories.iter().find(|c| c.name == "Rent & utilities").unwrap().id;
+        set_category_plan(&db, &CategoryPlan { category_id: rent, monthly_cents: Some(125000) }).await.unwrap();
+        let income_cat: i64 = sqlx::query_scalar("SELECT id FROM categories WHERE kind = 'income' LIMIT 1").fetch_one(&db).await.unwrap();
+        assert!(set_category_plan(&db, &CategoryPlan { category_id: income_cat, monthly_cents: Some(1) }).await.is_err());
+        assert!(set_category_plan(&db, &CategoryPlan { category_id: rent, monthly_cents: Some(-1) }).await.is_err());
+        assert!(matches!(set_category_plan(&db, &CategoryPlan { category_id: 999_999, monthly_cents: Some(1) }).await, Err(BusinessError::NotFound)));
+        let planned = |b: &Budget| b.categories.iter().find(|c| c.id == rent).unwrap().planned_monthly_cents;
+        assert_eq!(planned(&budget(&db, "2026-11-01", "2026-11-30").await.unwrap()), Some(125000));
+        set_category_plan(&db, &CategoryPlan { category_id: rent, monthly_cents: None }).await.unwrap();
+        assert_eq!(planned(&budget(&db, "2026-11-01", "2026-11-30").await.unwrap()), None);
 
         assert!(set_percentages(&db, Percentages { fixed_pct: 60, future_pct: 20, fun_pct: 30 }).await.is_err());
         set_percentages(&db, Percentages { fixed_pct: 55, future_pct: 25, fun_pct: 20 }).await.unwrap();

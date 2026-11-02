@@ -10,7 +10,7 @@ use serde::Deserialize;
 use crate::{
     AppState,
     error::{AppError, AppResult},
-    models::budget::{self as m, Budget, IncomePlan, Percentages},
+    models::budget::{self as m, Budget, CategoryPlan, IncomePlan, Percentages},
     services::net_worth::parse_date,
 };
 
@@ -33,5 +33,10 @@ pub async fn set_percentages(State(s): State<AppState>, Json(p): Json<Percentage
 
 pub async fn set_income_plan(State(s): State<AppState>, Json(p): Json<IncomePlan>) -> AppResult<StatusCode> {
     m::set_income_plan(&s.pool, &p).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn set_category_plan(State(s): State<AppState>, Json(p): Json<CategoryPlan>) -> AppResult<StatusCode> {
+    m::set_category_plan(&s.pool, &p).await?;
     Ok(StatusCode::NO_CONTENT)
 }

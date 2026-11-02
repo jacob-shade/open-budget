@@ -65,6 +65,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/budget", get(budget::show))
         .route("/api/budget/percentages", put(budget::set_percentages))
         .route("/api/budget/income-plans", put(budget::set_income_plan))
+        .route("/api/budget/category-plans", put(budget::set_category_plan))
         .route_layer(middleware::from_fn_with_state(state.clone(), auth::require_auth));
 
     public.merge(protected).with_state(state)

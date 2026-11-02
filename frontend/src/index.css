@@ -662,15 +662,6 @@ td .muted { display: block; }
 .bucket-bar span { display: block; height: 100%; border-radius: 5px; background: var(--positive); }
 .bucket-card.future .bucket-bar span { background: var(--chart-current); }
 .bucket-bar span.over { background: var(--negative); }
-.bucket-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; align-items: start; }
-.bucket-list ul, .not-budgeted ul { list-style: none; margin: 0 0 8px; padding: 0; }
-.bucket-list li, .not-budgeted li {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px;
-  padding: 6px 0; border-bottom: 1px solid var(--border);
-}
-.bucket-list li:last-child { border-bottom: 0; }
-.bucket-amount { font-variant-numeric: tabular-nums; }
-.bucket-list .select, .not-budgeted .select { font-size: 0.8rem; padding: 3px 6px; }
 .new-category { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
 .new-category .input { flex: 1; min-width: 120px; }
 .not-budgeted summary { cursor: pointer; font-weight: 600; }
@@ -678,3 +669,15 @@ td .muted { display: block; }
 .not-budgeted[open] summary { margin-bottom: 8px; }
 .bucket-category { display: flex; flex-direction: column; min-width: 0; }
 .bucket-category .muted { font-size: 0.75rem; padding-left: 26px; }
+.budget-table tfoot th { border-top: 2px solid var(--border); color: var(--text); font-weight: 600; font-size: 0.9rem; padding: 8px; }
+/* Same column widths in every bucket table, so Fixed / Future / Fun line up. */
+.budget-table { table-layout: fixed; min-width: 640px; }
+.budget-table th:nth-child(2), .budget-table td:nth-child(2) { width: 150px; }
+.budget-table th:nth-child(3), .budget-table td:nth-child(3) { width: 130px; }
+.budget-table th:nth-child(4), .budget-table td:nth-child(4) { width: 140px; }
+.budget-table .move-cell { width: 140px; white-space: nowrap; text-align: right; }
+.budget-table .select { font-size: 0.8rem; padding: 3px 6px; }
+.budget-table td.negative, .budget-table th.negative { color: var(--negative); }
+.muted-cell { color: var(--muted); }
+.over-plan { color: var(--negative); font-weight: 600; }
+.bucket-list .heading-with-total > span:first-child { display: inline-flex; gap: 6px; }

@@ -123,7 +123,7 @@ export function BudgetPage({ refreshKey }: { refreshKey: unknown }) {
         <div className={`budget-body${result.key !== key ? ' stale' : ''}`}>
           <IncomeTable data={d} months={period.months} onPlan={(source, label, cents) => run(() => api.setIncomePlan(source, label, cents))} />
           <Buckets data={d} months={period.months} onSave={(p) => run(() => api.setBudgetPercentages(p))} />
-          <BucketLists data={d} onChange={run} />
+          <BucketLists data={d} months={period.months} onChange={run} />
         </div>
       )}
     </main>
@@ -150,7 +150,7 @@ function PlannedCell({ value, onSave, label }: { value: number | null; onSave: (
     <input
       className="input money planned-input"
       inputMode="decimal"
-      aria-label={`Planned per month for ${label}`}
+      aria-label={label}
       placeholder="—"
       value={draft ?? (value != null ? centsToInput(value) : '')}
       onChange={(e) => setDraft(e.target.value)}
@@ -208,7 +208,7 @@ function IncomeTable({ data, months, onPlan }: { data: Budget; months: number; o
                 <tr key={`${r.source}:${r.label}`}>
                   <td>{name}</td>
                   <td className="num">
-                    <PlannedCell value={r.planned_monthly_cents} label={name} onSave={(c) => onPlan(r.source, r.label, c)} />
+                    <PlannedCell value={r.planned_monthly_cents} label={`Planned per month for ${name}`} onSave={(c) => onPlan(r.source, r.label, c)} />
                   </td>
                   <td className="num">{formatMoney(r.actual_cents)}</td>
                   <td className={`num${remaining != null && remaining < 0 ? ' positive' : ''}`}>
@@ -243,14 +243,19 @@ function IncomeTable({ data, months, onPlan }: { data: Budget; months: number; o
 
 // ---------- buckets ----------
 
+/** What bucket targets are a share of: planned income for the period, or actual income if nothing is planned. */
+function incomeBase(data: Budget, months: number) {
+  const planned = data.income.reduce((s, r) => s + (r.planned_monthly_cents ?? 0) * months, 0)
+  const actual = data.income.reduce((s, r) => s + r.actual_cents, 0)
+  return { base: planned > 0 ? planned : actual, fromPlan: planned > 0 }
+}
+
 function Buckets({ data, months, onSave }: { data: Budget; months: number; onSave: (p: BudgetPercentages) => void }) {
   const [draft, setDraft] = useState<BudgetPercentages | null>(null)
   const pct = draft ?? data.percentages
   const sum = pct.fixed_pct + pct.future_pct + pct.fun_pct
   const changed = draft !== null && (draft.fixed_pct !== data.percentages.fixed_pct || draft.future_pct !== data.percentages.future_pct || draft.fun_pct !== data.percentages.fun_pct)
-  const planned = data.income.reduce((s, r) => s + (r.planned_monthly_cents ?? 0) * months, 0)
-  const actualIncome = data.income.reduce((s, r) => s + r.actual_cents, 0)
-  const base = planned > 0 ? planned : actualIncome
+  const { base, fromPlan } = incomeBase(data, months)
   const spent = (b: Bucket) => data.categories.filter((c) => c.bucket === b).reduce((s, c) => s + c.actual_cents, 0)
   const setPct = (k: keyof BudgetPercentages, v: number) => setDraft({ ...pct, [k]: Math.max(0, Math.min(100, Math.round(v) || 0)) })
 
@@ -260,7 +265,7 @@ function Buckets({ data, months, onSave }: { data: Budget; months: number; onSav
         <h2 className="heading-with-total">
           Buckets
           <span className="heading-total">
-            {base > 0 ? `of ${formatMoney(base)} ${planned > 0 ? 'planned' : 'actual'} income` : 'add planned income to set targets'}
+            {base > 0 ? `of ${formatMoney(base)} ${fromPlan ? 'planned' : 'actual'} income` : 'add planned income to set targets'}
           </span>
         </h2>
         <div className="panel-controls">
@@ -388,61 +393,136 @@ function NewCategory({ bucket, onAdd }: { bucket: Bucket; onAdd: (name: string, 
   )
 }
 
-function BucketLists({ data, onChange }: { data: Budget; onChange: (action: () => Promise<unknown>) => Promise<void> }) {
+/** Remaining for spending: planned − actual; over plan shows as "over". */
+function remainingCell(planned: number | null, actual: number) {
+  if (planned == null) return <td className="num muted-cell">—</td>
+  const r = planned - actual
+  return <td className={`num${r < 0 ? ' negative' : ''}`}>{r < 0 ? `${formatMoney(-r)} over` : formatMoney(r)}</td>
+}
+
+function BucketLists({ data, months, onChange }: { data: Budget; months: number; onChange: (action: () => Promise<unknown>) => Promise<void> }) {
   const move = (id: number, bucket: Bucket | 'none') => onChange(() => api.updateCategory(id, { bucket }))
+  const plan = (id: number, cents: number | null) => onChange(() => api.setCategoryPlan(id, cents))
+  const { base } = incomeBase(data, months)
   const notBudgeted = data.categories.filter((c) => c.bucket === null)
-  const row = (c: Budget['categories'][number]) => (
-    <li key={c.id}>
-      <span className="bucket-category">
-        <span className="category-option">
-          <span aria-hidden="true">{c.emoji}</span>
-          {c.name}
-        </span>
-        {c.kind === 'transfer' && <span className="muted">Transfer</span>}
-      </span>
-      <span className="bucket-amount">{formatMoney(c.actual_cents)}</span>
-      <select className="select" value={c.bucket ?? 'none'} onChange={(e) => void move(c.id, e.target.value as Bucket | 'none')} aria-label={`Bucket for ${c.name}`}>
-        {MOVE_OPTIONS.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </li>
+  const perMonth = months > 1 ? ' / month' : ''
+
+  const rows = (list: Budget['categories']) =>
+    list.map((c) => {
+      const planned = c.planned_monthly_cents != null ? c.planned_monthly_cents * months : null
+      return (
+        <tr key={c.id}>
+          <td>
+            <span className="bucket-category">
+              <span className="category-option">
+                <span aria-hidden="true">{c.emoji}</span>
+                {c.name}
+              </span>
+              {c.kind === 'transfer' && <span className="muted">Transfer</span>}
+            </span>
+          </td>
+          <td className="num">
+            <PlannedCell value={c.planned_monthly_cents} label={`Planned per month for ${c.name}`} onSave={(cents) => void plan(c.id, cents)} />
+          </td>
+          <td className="num">{formatMoney(c.actual_cents)}</td>
+          {remainingCell(planned, c.actual_cents)}
+          <td className="move-cell">
+            <select className="select" value={c.bucket ?? 'none'} onChange={(e) => void move(c.id, e.target.value as Bucket | 'none')} aria-label={`Bucket for ${c.name}`}>
+              {MOVE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </td>
+        </tr>
+      )
+    })
+
+  const head = (
+    <thead>
+      <tr>
+        <th>Category</th>
+        <th className="num">Planned{perMonth}</th>
+        <th className="num">Actual</th>
+        <th className="num">Remaining</th>
+        <th className="move-cell">Bucket</th>
+      </tr>
+    </thead>
   )
+
   return (
     <>
-      <div className="bucket-lists">
-        {BUCKETS.map((b) => {
-          const list = data.categories.filter((c) => c.bucket === b.key)
-          return (
-            <section key={b.key} className={`panel bucket-list ${b.key}`}>
-              <div className="panel-header">
-                <h2>
+      {BUCKETS.map((b) => {
+        const list = data.categories.filter((c) => c.bucket === b.key)
+        const plannedTotal = list.reduce((s, c) => s + (c.planned_monthly_cents ?? 0) * months, 0)
+        const actualTotal = list.reduce((s, c) => s + c.actual_cents, 0)
+        const anyPlanned = list.some((c) => c.planned_monthly_cents != null)
+        const target = Math.round((base * data.percentages[b.pct]) / 100)
+        return (
+          <section key={b.key} className={`panel bucket-list ${b.key}`}>
+            <div className="panel-header">
+              <h2 className="heading-with-total">
+                <span>
                   <span aria-hidden="true">{b.emoji}</span> {b.label}
-                </h2>
-                <span className="muted-text small">
+                </span>
+                <span className="heading-total">
                   {list.length} {list.length === 1 ? 'category' : 'categories'}
                 </span>
+              </h2>
+              {target > 0 && (
+                <span className={`muted-text small${plannedTotal > target ? ' over-plan' : ''}`}>
+                  Planned {formatMoney(plannedTotal)} of {formatMoney(target)} target
+                  {plannedTotal > target ? ` · ${formatMoney(plannedTotal - target)} over` : ''}
+                </span>
+              )}
+            </div>
+            {list.length === 0 ? (
+              <p className="empty compact">No categories yet.</p>
+            ) : (
+              <div className="table-wrap">
+                <table className="budget-table">
+                  {head}
+                  <tbody>{rows(list)}</tbody>
+                  <tfoot>
+                    <tr>
+                      <th>Total</th>
+                      <th className="num">{anyPlanned ? formatMoney(plannedTotal) : '—'}</th>
+                      <th className="num">{formatMoney(actualTotal)}</th>
+                      {anyPlanned ? (
+                        <th className={`num${plannedTotal - actualTotal < 0 ? ' negative' : ''}`}>
+                          {plannedTotal - actualTotal < 0 ? `${formatMoney(actualTotal - plannedTotal)} over` : formatMoney(plannedTotal - actualTotal)}
+                        </th>
+                      ) : (
+                        <th className="num">—</th>
+                      )}
+                      <th />
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
-              {list.length === 0 ? <p className="empty compact">No categories yet.</p> : <ul>{list.map(row)}</ul>}
-              <NewCategory
-                bucket={b.key}
-                onAdd={(name, emoji) =>
-                  // Future is usually money moved to savings/investments, so its new categories are transfers.
-                  onChange(() => api.createCategory({ name, emoji, kind: b.key === 'future' ? 'transfer' : 'expense', bucket: b.key }))
-                }
-              />
-            </section>
-          )
-        })}
-      </div>
+            )}
+            <NewCategory
+              bucket={b.key}
+              onAdd={(name, emoji) =>
+                // Future is usually money moved to savings/investments, so its new categories are transfers.
+                onChange(() => api.createCategory({ name, emoji, kind: b.key === 'future' ? 'transfer' : 'expense', bucket: b.key }))
+              }
+            />
+          </section>
+        )
+      })}
       {notBudgeted.length > 0 && (
         <details className="panel not-budgeted">
           <summary>
             Not budgeted <span className="muted">({notBudgeted.length}: card payments and transfers between your accounts)</span>
           </summary>
-          <ul>{notBudgeted.map(row)}</ul>
+          <div className="table-wrap">
+            <table className="budget-table">
+              {head}
+              <tbody>{rows(notBudgeted)}</tbody>
+            </table>
+          </div>
         </details>
       )}
     </>

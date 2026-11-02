@@ -174,6 +174,9 @@ export const api = {
   deletePayout: (id: number, rowId: number) => request<void>('DELETE', `/businesses/${id}/payouts/${rowId}`),
   budget: (start: string, end: string) => request<Budget>('GET', `/budget?${new URLSearchParams({ start, end })}`),
   setBudgetPercentages: (p: BudgetPercentages) => request<BudgetPercentages>('PUT', '/budget/percentages', p),
+  /** Planned spending per month for a category; null removes the plan. */
+  setCategoryPlan: (categoryId: number, monthlyCents: number | null) =>
+    request<void>('PUT', '/budget/category-plans', { category_id: categoryId, monthly_cents: monthlyCents }),
   /** Planned income per month for a source; null removes the plan. */
   setIncomePlan: (source: 'income' | 'payout', label: string, monthlyCents: number | null) =>
     request<void>('PUT', '/budget/income-plans', { source, label, monthly_cents: monthlyCents }),
