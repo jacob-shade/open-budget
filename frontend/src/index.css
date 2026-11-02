@@ -110,3 +110,31 @@ tr.pending td { opacity: 0.7; }
 .merchant img, .logo-fallback { width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; }
 .logo-fallback { display: grid; place-items: center; background: var(--hover); color: var(--muted); font-weight: 600; }
 .tag { margin-left: 6px; font-size: 0.7rem; padding: 1px 6px; border-radius: 999px; background: var(--hover); color: var(--muted); }
+
+/* ---------- auth ---------- */
+.auth-card {
+  max-width: 420px; margin: 10vh auto 0; padding: 28px 24px; display: flex; flex-direction: column; gap: 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+}
+.auth-card h1 { font-size: 1.3rem; }
+.auth-card .banner { margin: 0; }
+.muted-text { color: var(--muted); margin: 0; }
+.button.google { display: inline-flex; align-items: center; justify-content: center; gap: 10px; text-decoration: none; padding: 10px 14px; }
+.qr { width: 220px; height: 220px; align-self: center; background: #fff; border-radius: 8px; }
+.manual-key summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; }
+.manual-key code { display: block; margin: 8px 0 4px; font-size: 1rem; letter-spacing: 0.05em; word-break: break-all; }
+.code-form { display: flex; flex-direction: column; gap: 8px; }
+.code-form label { font-size: 0.9rem; }
+.code-input {
+  font: inherit; font-size: 1.4rem; text-align: center; letter-spacing: 0.3em; padding: 10px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text);
+}
+.code-input.recovery { letter-spacing: 0.1em; text-transform: uppercase; }
+.link-button { background: none; border: 0; padding: 0; font: inherit; font-size: 0.9rem; color: var(--muted); text-decoration: underline; cursor: pointer; align-self: center; }
+.recovery-codes { columns: 2; margin: 0; padding-left: 1.6em; font-family: ui-monospace, Consolas, monospace; font-size: 1rem; line-height: 1.9; }
+.auth-actions { display: flex; gap: 8px; }
+.checkbox { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
+.user-menu { display: flex; align-items: center; gap: 8px; margin-left: 8px; }
+.user-menu img { width: 28px; height: 28px; border-radius: 50%; }
+.user-email { color: var(--muted); font-size: 0.85rem; }
+@media (max-width: 600px) { .user-email { display: none; } }

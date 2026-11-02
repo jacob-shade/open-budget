@@ -10,6 +10,10 @@ RUN npm run build
 
 # ---------- 2. Build the Rust backend ----------
 FROM rust:1.99-slim-trixie AS backend
+# perl + make: build the OpenSSL that SQLCipher (database encryption) is linked against.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends perl make \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # Cache dependency builds: compile against a stub main first.
 COPY backend/Cargo.toml backend/Cargo.lock ./

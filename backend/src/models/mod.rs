@@ -2,4 +2,6 @@
 
 pub mod account;
 pub mod item;
+pub mod session;
 pub mod transaction;
+pub mod user;

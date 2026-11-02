@@ -67,3 +67,22 @@ export interface ExchangeResult {
   sync: SyncSummary | null
   sync_error: string | null
 }
+
+export interface User {
+  email: string
+  name: string | null
+  picture_url: string | null
+}
+
+export type AuthStatus = 'anonymous' | 'mfa_setup' | 'mfa_verify' | 'authenticated'
+
+export interface AuthState {
+  status: AuthStatus
+  user: User | null
+}
+
+export interface MfaSetup {
+  secret: string
+  otpauth_url: string
+  qr_svg: string
+}

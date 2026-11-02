@@ -110,3 +110,50 @@ impl From<Transaction> for TransactionView {
 pub fn render<M, V: From<M>>(models: Vec<M>) -> Vec<V> {
     models.into_iter().map(V::from).collect()
 }
+
+#[derive(Serialize)]
+pub struct UserView {
+    pub email: String,
+    pub name: Option<String>,
+    pub picture_url: Option<String>,
+}
+
+impl From<&crate::models::user::User> for UserView {
+    fn from(u: &crate::models::user::User) -> Self {
+        Self { email: u.email.clone(), name: u.name.clone(), picture_url: u.picture_url.clone() }
+    }
+}
+
+/// Where the browser is in the sign-in flow.
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthStatus {
+    /// No session: show "Sign in with Google".
+    Anonymous,
+    /// Google sign-in done, no authenticator enrolled yet: show QR setup.
+    MfaSetup,
+    /// Google sign-in done, authenticator enrolled: ask for a code.
+    MfaVerify,
+    /// Fully signed in.
+    Authenticated,
+}
+
+#[derive(Serialize)]
+pub struct AuthStatusView {
+    pub status: AuthStatus,
+    pub user: Option<UserView>,
+}
+
+#[derive(Serialize)]
+pub struct MfaSetupView {
+    /// For manual entry if the QR code can't be scanned.
+    pub secret: String,
+    pub otpauth_url: String,
+    /// SVG markup of the QR code.
+    pub qr_svg: String,
+}
+
+#[derive(Serialize)]
+pub struct RecoveryCodesView {
+    pub recovery_codes: Vec<String>,
+}

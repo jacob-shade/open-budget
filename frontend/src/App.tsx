@@ -1,78 +1,23 @@
-import { useCallback, useMemo, useState } from 'react'
-import { AccountsPanel } from './components/AccountsPanel'
-import { PlaidLinkButton } from './components/PlaidLinkButton'
-import { TransactionsTable } from './components/TransactionsTable'
-import { useFinanceData } from './hooks/useFinanceData'
+import { Dashboard } from './components/Dashboard'
+import { MfaSetup } from './components/auth/MfaSetup'
+import { MfaVerify } from './components/auth/MfaVerify'
+import { SignIn } from './components/auth/SignIn'
+import { useAuth } from './hooks/useAuth'
 
+/** Routes between sign-in steps; financial data only loads once fully authenticated. */
 export default function App() {
-  const data = useFinanceData()
-  const { refresh, setError, setNotice } = data
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
+  const { auth, error, refresh, logout } = useAuth()
 
-  const onLinked = useCallback(
-    (message: string) => {
-      setNotice(message)
-      setError(null)
-      void refresh()
-    },
-    [refresh, setError, setNotice],
-  )
+  if (!auth) return <p className="empty">Loading…</p>
 
-  const selectedAccount = data.accounts.find((a) => a.id === selectedAccountId) ?? null
-  const transactions = useMemo(
-    () => (selectedAccountId ? data.transactions.filter((t) => t.account_id === selectedAccountId) : data.transactions),
-    [data.transactions, selectedAccountId],
-  )
-
-  return (
-    <div className="app">
-      <header className="topbar">
-        <h1>Open Budget</h1>
-        <div className="actions">
-          <button className="button" onClick={data.syncAll} disabled={data.syncing || data.items.length === 0}>
-            {data.syncing ? 'Syncing…' : 'Sync'}
-          </button>
-          <PlaidLinkButton onLinked={onLinked} onError={setError} />
-        </div>
-      </header>
-
-      {data.error && (
-        <div className="banner error" role="alert">
-          {data.error}
-          <button onClick={() => setError(null)} aria-label="Dismiss">
-            ×
-          </button>
-        </div>
-      )}
-      {data.notice && (
-        <div className="banner notice" role="status">
-          {data.notice}
-          <button onClick={() => setNotice(null)} aria-label="Dismiss">
-            ×
-          </button>
-        </div>
-      )}
-
-      {data.loading ? (
-        <p className="empty">Loading…</p>
-      ) : (
-        <main className="layout">
-          <AccountsPanel
-            items={data.items}
-            accounts={data.accounts}
-            selectedAccountId={selectedAccountId}
-            onSelectAccount={setSelectedAccountId}
-            onRemoveItem={data.removeItem}
-            onReconnected={onLinked}
-            onError={setError}
-          />
-          <TransactionsTable
-            transactions={transactions}
-            title={selectedAccount ? `${selectedAccount.name} transactions` : 'Recent transactions'}
-            onClearFilter={selectedAccount ? () => setSelectedAccountId(null) : undefined}
-          />
-        </main>
-      )}
-    </div>
-  )
+  switch (auth.status) {
+    case 'anonymous':
+      return <SignIn error={error} />
+    case 'mfa_setup':
+      return <MfaSetup user={auth.user!} onDone={refresh} onSignOut={logout} />
+    case 'mfa_verify':
+      return <MfaVerify user={auth.user!} onDone={refresh} onSignOut={logout} />
+    case 'authenticated':
+      return <Dashboard user={auth.user!} onSignOut={logout} />
+  }
 }
