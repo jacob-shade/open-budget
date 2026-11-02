@@ -22,6 +22,8 @@ export interface Account {
   credit_limit_cents: number | null
   currency: string | null
   is_liability: boolean
+  /** The business this account belongs to; its money is left out of personal spending. */
+  business_id: number | null
   updated_at: string
 }
 
@@ -85,4 +87,143 @@ export interface MfaSetup {
   secret: string
   otpauth_url: string
   qr_svg: string
+}
+
+export interface DailySpending {
+  /** YYYY-MM-DD */
+  date: string
+  spent_cents: number
+}
+
+
+export interface NetWorthPoint {
+  /** YYYY-MM-DD */
+  date: string
+  net_worth_cents: number
+}
+
+export type BusinessKind = 'collectibles' | 'general'
+export type PaidVia = 'cash' | 'bank'
+export type ExpenseCategory = 'shipping' | 'protection' | 'table' | 'fees' | 'travel' | 'other'
+
+export interface Business {
+  id: number
+  name: string
+  kind: BusinessKind
+  created_at: string
+}
+
+export interface CollectibleItem {
+  id: number
+  name: string
+  category: string | null
+  condition: string | null
+  acquired_date: string
+  acquired_via: 'purchase' | 'trade' | 'other'
+  purchase_paid_via: PaidVia | null
+  cost_cents: number
+  estimated_value_cents: number
+  status: 'in_stock' | 'sold' | 'traded'
+  sale_id: number | null
+  sale_price_cents: number | null
+  trade_in_id: number | null
+  trade_out_id: number | null
+  notes: string | null
+}
+
+export interface Sale {
+  id: number
+  date: string
+  total_cents: number
+  fees_cents: number
+  shipping_cents: number
+  channel: string | null
+  paid_via: PaidVia
+  notes: string | null
+  item_names: string | null
+  item_count: number
+}
+
+export interface Trade {
+  id: number
+  date: string
+  cash_in_cents: number
+  cash_out_cents: number
+  paid_via: PaidVia
+  gain_cents: number
+  notes: string | null
+  given_names: string | null
+  received_names: string | null
+}
+
+export interface Expense {
+  id: number
+  date: string
+  category: ExpenseCategory
+  amount_cents: number
+  paid_via: PaidVia
+  description: string | null
+}
+
+export interface CashAdjustment {
+  id: number
+  date: string
+  amount_cents: number
+  description: string | null
+}
+
+export interface BusinessSummary {
+  cash_on_hand_cents: number
+  bank_cents: number
+  inventory_count: number
+  inventory_value_cents: number
+  inventory_cost_cents: number
+  sales_cents: number
+  trade_gain_cents: number
+  cost_of_sold_cents: number
+  selling_costs_cents: number
+  expenses_cents: number
+  expenses_by_category: { category: ExpenseCategory; amount_cents: number }[]
+  profit_cents: number
+}
+
+export interface NewItem {
+  name: string
+  category?: string
+  condition?: string
+  acquired_date: string
+  acquired_via: 'purchase' | 'other'
+  purchase_paid_via?: PaidVia
+  cost_cents: number
+  estimated_value_cents: number
+  notes?: string
+}
+
+export interface NewSale {
+  date: string
+  item_ids: number[]
+  total_cents: number
+  fees_cents: number
+  shipping_cents: number
+  channel?: string
+  paid_via: PaidVia
+  notes?: string
+}
+
+export interface NewTrade {
+  date: string
+  given_item_ids: number[]
+  received: { name: string; category?: string; condition?: string; estimated_value_cents: number }[]
+  cash_in_cents: number
+  cash_out_cents: number
+  paid_via: PaidVia
+  notes?: string
+}
+
+export interface TransactionSummary {
+  count: number
+  spending_cents: number
+  income_cents: number
+  average_expense_cents: number | null
+  largest_expense: { id: string; name: string; date: string; amount_cents: number } | null
 }

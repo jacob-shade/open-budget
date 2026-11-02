@@ -43,6 +43,7 @@ pub struct AccountView {
     pub currency: Option<String>,
     /// Liabilities (credit cards, loans) count against net worth.
     pub is_liability: bool,
+    pub business_id: Option<i64>,
     pub updated_at: String,
 }
 
@@ -63,6 +64,7 @@ impl From<Account> for AccountView {
             credit_limit_cents: a.credit_limit_cents,
             currency: a.iso_currency_code,
             is_liability,
+            business_id: a.business_id,
             updated_at: a.updated_at,
         }
     }
@@ -156,4 +158,22 @@ pub struct MfaSetupView {
 #[derive(Serialize)]
 pub struct RecoveryCodesView {
     pub recovery_codes: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct DailySpendingView {
+    pub date: String,
+    pub spent_cents: i64,
+}
+
+impl From<crate::models::transaction::DailySpending> for DailySpendingView {
+    fn from(d: crate::models::transaction::DailySpending) -> Self {
+        Self { date: d.date, spent_cents: d.spent_cents }
+    }
+}
+
+#[derive(Serialize)]
+pub struct NetWorthPointView {
+    pub date: String,
+    pub net_worth_cents: i64,
 }

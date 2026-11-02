@@ -1,4 +1,29 @@
-import type { Account, AuthState, ExchangeResult, Item, MfaSetup, SyncAllResult, SyncSummary, Transaction } from './types'
+import type {
+  Account,
+  AuthState,
+  Business,
+  BusinessKind,
+  BusinessSummary,
+  CashAdjustment,
+  CollectibleItem,
+  DailySpending,
+  ExchangeResult,
+  Expense,
+  ExpenseCategory,
+  Item,
+  MfaSetup,
+  NetWorthPoint,
+  NewItem,
+  NewSale,
+  NewTrade,
+  PaidVia,
+  Sale,
+  SyncAllResult,
+  SyncSummary,
+  Trade,
+  Transaction,
+  TransactionSummary,
+} from './types'
 
 export class ApiError extends Error {
   readonly status: number
@@ -35,6 +60,34 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return res.status === 204 ? (undefined as T) : res.json()
 }
 
+export interface TransactionQuery {
+  accountId?: string
+  accounts?: string[]
+  /** YYYY-MM-DD, inclusive. */
+  start?: string
+  end?: string
+  search?: string
+  /** Plaid primary categories, e.g. FOOD_AND_DRINK. */
+  categories?: string[]
+  direction?: 'all' | 'in' | 'out'
+  limit?: number
+  offset?: number
+}
+
+function transactionParams(params: TransactionQuery): URLSearchParams {
+  const q = new URLSearchParams()
+  if (params.accountId) q.set('account_id', params.accountId)
+  if (params.accounts?.length) q.set('accounts', params.accounts.join(','))
+  if (params.start) q.set('start', params.start)
+  if (params.end) q.set('end', params.end)
+  if (params.search?.trim()) q.set('q', params.search.trim())
+  if (params.categories?.length) q.set('categories', params.categories.join(','))
+  if (params.direction && params.direction !== 'all') q.set('direction', params.direction)
+  if (params.limit) q.set('limit', String(params.limit))
+  if (params.offset) q.set('offset', String(params.offset))
+  return q
+}
+
 export const api = {
   // Sign-in. Google login itself is a full-page redirect to /api/auth/google/login.
   me: () => request<AuthState>('GET', '/auth/me'),
@@ -56,11 +109,48 @@ export const api = {
   syncItem: (id: string) => request<SyncSummary>('POST', `/items/${encodeURIComponent(id)}/sync`),
   syncAll: () => request<SyncAllResult>('POST', '/sync'),
   accounts: () => request<Account[]>('GET', '/accounts'),
-  transactions: (params: { accountId?: string; limit?: number; offset?: number } = {}) => {
-    const q = new URLSearchParams()
-    if (params.accountId) q.set('account_id', params.accountId)
-    if (params.limit) q.set('limit', String(params.limit))
-    if (params.offset) q.set('offset', String(params.offset))
-    return request<Transaction[]>('GET', `/transactions?${q}`)
-  },
+  transactions: (params: TransactionQuery = {}) => request<Transaction[]>('GET', `/transactions?${transactionParams(params)}`),
+  /** Totals over every transaction matching the filters (limit/offset ignored). */
+  transactionSummary: (params: TransactionQuery = {}) =>
+    request<TransactionSummary>('GET', `/transactions/summary?${transactionParams(params)}`),
+
+  /** Spending per day, start..end inclusive (YYYY-MM-DD); transfers and payments excluded. */
+  dailySpending: (start: string, end: string) =>
+    request<DailySpending[]>('GET', `/spending/daily?${new URLSearchParams({ start, end })}`),
+  /** Estimated daily net worth up to `end`; `start` omitted = from the earliest transaction. */
+  netWorthHistory: (start: string | null, end: string) =>
+    request<NetWorthPoint[]>('GET', `/net-worth/history?${new URLSearchParams(start ? { start, end } : { end })}`),
+  /** Link an account to a business, or null to make it personal. */
+  setAccountBusiness: (id: string, businessId: number | null) =>
+    request<void>('PATCH', `/accounts/${encodeURIComponent(id)}`, { business_id: businessId }),
+
+  // Businesses
+  businesses: () => request<Business[]>('GET', '/businesses'),
+  createBusiness: (name: string, kind: BusinessKind) => request<Business>('POST', '/businesses', { name, kind }),
+  renameBusiness: (id: number, name: string) => request<Business>('PATCH', `/businesses/${id}`, { name }),
+  deleteBusiness: (id: number) => request<void>('DELETE', `/businesses/${id}`),
+  businessSummary: (id: number, start: string, end: string) =>
+    request<BusinessSummary>('GET', `/businesses/${id}/summary?${new URLSearchParams({ start, end })}`),
+  /** All businesses combined. */
+  allBusinessSummary: (start: string, end: string) =>
+    request<BusinessSummary>('GET', `/business-summary?${new URLSearchParams({ start, end })}`),
+  businessItems: (id: number) => request<CollectibleItem[]>('GET', `/businesses/${id}/items`),
+  createItem: (id: number, item: NewItem) => request<CollectibleItem>('POST', `/businesses/${id}/items`, item),
+  updateItem: (id: number, itemId: number, changes: Partial<Pick<CollectibleItem, 'name' | 'category' | 'condition' | 'estimated_value_cents' | 'cost_cents' | 'notes'>>) =>
+    request<CollectibleItem>('PATCH', `/businesses/${id}/items/${itemId}`, changes),
+  deleteItem: (id: number, itemId: number) => request<void>('DELETE', `/businesses/${id}/items/${itemId}`),
+  sales: (id: number) => request<Sale[]>('GET', `/businesses/${id}/sales`),
+  createSale: (id: number, sale: NewSale) => request<{ id: number }>('POST', `/businesses/${id}/sales`, sale),
+  deleteSale: (id: number, saleId: number) => request<void>('DELETE', `/businesses/${id}/sales/${saleId}`),
+  trades: (id: number) => request<Trade[]>('GET', `/businesses/${id}/trades`),
+  createTrade: (id: number, trade: NewTrade) => request<{ id: number }>('POST', `/businesses/${id}/trades`, trade),
+  deleteTrade: (id: number, tradeId: number) => request<void>('DELETE', `/businesses/${id}/trades/${tradeId}`),
+  expenses: (id: number) => request<Expense[]>('GET', `/businesses/${id}/expenses`),
+  createExpense: (id: number, e: { date: string; category: ExpenseCategory; amount_cents: number; paid_via: PaidVia; description?: string }) =>
+    request<{ id: number }>('POST', `/businesses/${id}/expenses`, e),
+  deleteExpense: (id: number, rowId: number) => request<void>('DELETE', `/businesses/${id}/expenses/${rowId}`),
+  cash: (id: number) => request<CashAdjustment[]>('GET', `/businesses/${id}/cash`),
+  createCash: (id: number, c: { date: string; amount_cents: number; description?: string }) =>
+    request<{ id: number }>('POST', `/businesses/${id}/cash`, c),
+  deleteCash: (id: number, rowId: number) => request<void>('DELETE', `/businesses/${id}/cash/${rowId}`),
 }

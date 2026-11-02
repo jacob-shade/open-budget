@@ -26,3 +26,7 @@ subtle = "2.6.1"
 time = "0.3.55"
 qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
 libsqlite3-sys = { version = "0.30", features = ["bundled-sqlcipher-vendored-openssl"] }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }

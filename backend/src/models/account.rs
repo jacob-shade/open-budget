@@ -16,6 +16,8 @@ pub struct Account {
     pub credit_limit_cents: Option<i64>,
     pub iso_currency_code: Option<String>,
     pub updated_at: String,
+    /// The business this account belongs to, if any; its money is left out of personal spending.
+    pub business_id: Option<i64>,
     /// Joined from `items`.
     pub institution_name: Option<String>,
 }
@@ -67,5 +69,19 @@ impl Account {
         )
         .fetch_all(db)
         .await
+    }
+
+    /// Links an account to a business (or unlinks it with None). Returns false if no such account exists.
+    pub async fn set_business<'e, E: Executor<'e, Database = Sqlite>>(
+        db: E,
+        id: &str,
+        business_id: Option<i64>,
+    ) -> sqlx::Result<bool> {
+        let res = sqlx::query("UPDATE accounts SET business_id = ? WHERE id = ?")
+            .bind(business_id)
+            .bind(id)
+            .execute(db)
+            .await?;
+        Ok(res.rows_affected() == 1)
     }
 }

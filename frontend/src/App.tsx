@@ -1,4 +1,4 @@
-import { Dashboard } from './components/Dashboard'
+import { AppShell } from './components/AppShell'
 import { MfaSetup } from './components/auth/MfaSetup'
 import { MfaVerify } from './components/auth/MfaVerify'
 import { SignIn } from './components/auth/SignIn'
@@ -18,6 +18,6 @@ export default function App() {
     case 'mfa_verify':
       return <MfaVerify user={auth.user!} onDone={refresh} onSignOut={logout} />
     case 'authenticated':
-      return <Dashboard user={auth.user!} onSignOut={logout} />
+      return <AppShell user={auth.user!} onSignOut={logout} />
   }
 }

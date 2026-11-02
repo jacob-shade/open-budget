@@ -13,7 +13,7 @@ interface Props {
   onSignOut: () => void
 }
 
-/** Profile picture button that opens a dropdown with the account and a sign-out action. */
+/** Profile row at the bottom of the sidebar; opens a menu upward with the theme picker and sign-out. */
 export function UserMenu({ user, onSignOut }: Props) {
   const [open, setOpen] = useState(false)
   const [imgFailed, setImgFailed] = useState(false)
@@ -40,19 +40,6 @@ export function UserMenu({ user, onSignOut }: Props) {
 
   return (
     <div className="user-menu" ref={root}>
-      <button
-        className="avatar-button"
-        onClick={() => setOpen(!open)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`Account menu for ${user.email}`}
-      >
-        {user.picture_url && !imgFailed ? (
-          <img src={user.picture_url} alt="" referrerPolicy="no-referrer" onError={() => setImgFailed(true)} />
-        ) : (
-          <span className="avatar-initial">{initial}</span>
-        )}
-      </button>
       {open && (
         <div className="user-dropdown" role="menu">
           <div className="user-dropdown-account">
@@ -81,6 +68,26 @@ export function UserMenu({ user, onSignOut }: Props) {
           </button>
         </div>
       )}
+      <button
+        className="profile-button"
+        onClick={() => setOpen(!open)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Account menu for ${user.email}`}
+        title={user.email}
+      >
+        <span className="avatar">
+          {user.picture_url && !imgFailed ? (
+            <img src={user.picture_url} alt="" referrerPolicy="no-referrer" onError={() => setImgFailed(true)} />
+          ) : (
+            <span className="avatar-initial">{initial}</span>
+          )}
+        </span>
+        <span className="profile-text sidebar-label">
+          <strong>{user.name ?? user.email}</strong>
+          {user.name && <span>{user.email}</span>}
+        </span>
+      </button>
     </div>
   )
 }

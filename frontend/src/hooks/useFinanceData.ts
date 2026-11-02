@@ -71,3 +71,5 @@ export function useFinanceData() {
 
   return { items, accounts, transactions, loading, syncing, error, notice, setError, setNotice, refresh, syncAll, removeItem }
 }
+
+export type FinanceData = ReturnType<typeof useFinanceData>
