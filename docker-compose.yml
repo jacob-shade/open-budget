@@ -1,0 +1,23 @@
+name: open-budget
+
+services:
+  app:
+    build: .
+    image: open-budget:latest
+    restart: unless-stopped
+    # PLAID_CLIENT_ID / PLAID_SECRET / PLAID_ENV come from backend/.env (copy backend/.env.example).
+    env_file: backend/.env
+    environment:
+      # Override anything in .env that only makes sense outside the container.
+      BIND_ADDR: 0.0.0.0
+      PORT: 3000
+      STATIC_DIR: /app/static
+      DATABASE_URL: sqlite:///data/budget.db
+    ports:
+      # Published on the host's loopback only: the app has no login and holds bank access tokens.
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - budget-data:/data
+
+volumes:
+  budget-data:
