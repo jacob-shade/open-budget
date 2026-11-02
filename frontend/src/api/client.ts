@@ -1,6 +1,9 @@
 import type {
   Account,
   AuthState,
+  Bucket,
+  Budget,
+  BudgetPercentages,
   Business,
   BusinessKind,
   BusinessSummary,
@@ -118,8 +121,8 @@ export const api = {
   setTransactionCategory: (id: string, categoryId: number | null) =>
     request<void>('PATCH', `/transactions/${encodeURIComponent(id)}`, { category_id: categoryId }),
   categories: () => request<Category[]>('GET', '/categories'),
-  createCategory: (c: { name: string; emoji: string; kind: CategoryKind }) => request<Category>('POST', '/categories', c),
-  updateCategory: (id: number, c: Partial<{ name: string; emoji: string; kind: CategoryKind }>) =>
+  createCategory: (c: { name: string; emoji: string; kind: CategoryKind; bucket?: Bucket | 'none' }) => request<Category>('POST', '/categories', c),
+  updateCategory: (id: number, c: Partial<{ name: string; emoji: string; kind: CategoryKind; bucket: Bucket | 'none' }>) =>
     request<Category>('PATCH', `/categories/${id}`, c),
   deleteCategory: (id: number) => request<void>('DELETE', `/categories/${id}`),
   /** Totals over every transaction matching the filters (limit/offset ignored). */
@@ -169,6 +172,11 @@ export const api = {
   createPayout: (id: number, p: { date: string; amount_cents: number; paid_via: PaidVia; description?: string }) =>
     request<{ id: number }>('POST', `/businesses/${id}/payouts`, p),
   deletePayout: (id: number, rowId: number) => request<void>('DELETE', `/businesses/${id}/payouts/${rowId}`),
+  budget: (start: string, end: string) => request<Budget>('GET', `/budget?${new URLSearchParams({ start, end })}`),
+  setBudgetPercentages: (p: BudgetPercentages) => request<BudgetPercentages>('PUT', '/budget/percentages', p),
+  /** Planned income per month for a source; null removes the plan. */
+  setIncomePlan: (source: 'income' | 'payout', label: string, monthlyCents: number | null) =>
+    request<void>('PUT', '/budget/income-plans', { source, label, monthly_cents: monthlyCents }),
   /** Personal income streams (incl. business payouts) and spending by category, start..end inclusive. */
   cashFlow: (start: string, end: string) => request<CashFlow>('GET', `/cash-flow?${new URLSearchParams({ start, end })}`),
 }

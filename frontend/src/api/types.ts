@@ -60,7 +60,24 @@ export interface Category {
   kind: CategoryKind
   /** Plaid category mapped here ('' = uncategorised fallback); null for ones you created. */
   plaid_primary: string | null
+  /** Budget bucket; null = not budgeted. Income categories never have one. */
+  bucket: Bucket | null
   transaction_count: number
+}
+
+export type Bucket = 'fixed' | 'future' | 'fun'
+
+export interface BudgetPercentages {
+  fixed_pct: number
+  future_pct: number
+  fun_pct: number
+}
+
+export interface Budget {
+  percentages: BudgetPercentages
+  income: { label: string; source: 'income' | 'payout'; planned_monthly_cents: number | null; actual_cents: number }[]
+  /** Expense and transfer categories with money out in the period. */
+  categories: { id: number; name: string; emoji: string; kind: CategoryKind; bucket: Bucket | null; actual_cents: number }[]
 }
 
 export interface SyncSummary {

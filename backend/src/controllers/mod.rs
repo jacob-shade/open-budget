@@ -2,6 +2,7 @@
 
 mod accounts;
 mod auth;
+mod budget;
 mod business;
 mod categories;
 mod items;
@@ -10,7 +11,7 @@ mod transactions;
 
 use axum::{
     Router, middleware,
-    routing::{delete, get, patch, post},
+    routing::{delete, get, patch, post, put},
 };
 
 use crate::AppState;
@@ -61,6 +62,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/categories/{id}", patch(categories::update).delete(categories::destroy))
         .route("/api/spending/daily", get(transactions::daily_spending))
         .route("/api/cash-flow", get(transactions::cash_flow))
+        .route("/api/budget", get(budget::show))
+        .route("/api/budget/percentages", put(budget::set_percentages))
+        .route("/api/budget/income-plans", put(budget::set_income_plan))
         .route_layer(middleware::from_fn_with_state(state.clone(), auth::require_auth));
 
     public.merge(protected).with_state(state)
@@ -143,6 +147,12 @@ mod tests {
 
         assert_eq!(call(&app, None, "GET", "/api/businesses", None).await.0, StatusCode::UNAUTHORIZED);
         assert_eq!(call(&app, None, "GET", "/api/cash-flow?start=2026-11-01&end=2026-11-30", None).await.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(call(&app, None, "GET", "/api/budget?start=2026-11-01&end=2026-11-30", None).await.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(call(&app, None, "PUT", "/api/budget/percentages", Some(json!({"fixed_pct": 50, "future_pct": 20, "fun_pct": 30}))).await.0, StatusCode::UNAUTHORIZED);
+        let (s, b) = call(&app, c, "GET", "/api/budget?start=2026-11-01&end=2026-11-30", None).await;
+        assert_eq!((s, b["percentages"]["fixed_pct"].as_i64()), (StatusCode::OK, Some(50)));
+        assert_eq!(call(&app, c, "PUT", "/api/budget/percentages", Some(json!({"fixed_pct": 50, "future_pct": 20, "fun_pct": 40}))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(call(&app, c, "PUT", "/api/budget/income-plans", Some(json!({"source": "income", "label": "Acme", "monthly_cents": 500000}))).await.0, StatusCode::NO_CONTENT);
         assert_eq!(call(&app, None, "POST", "/api/businesses", Some(json!({"name": "x", "kind": "general"}))).await.0, StatusCode::UNAUTHORIZED);
 
         let (s, b) = call(&app, c, "POST", "/api/businesses", Some(json!({"name": "Card Shop", "kind": "collectibles"}))).await;

@@ -3,6 +3,7 @@ import type { User } from '../api/types'
 import { useFinanceData, type FinanceData } from '../hooks/useFinanceData'
 import { NAV, type NavItem } from '../nav'
 import { AccountsPage } from '../pages/AccountsPage'
+import { BudgetPage } from '../pages/BudgetPage'
 import { BusinessPage } from '../pages/BusinessPage'
 import { CashFlowPage } from '../pages/CashFlowPage'
 import { OverviewPage } from '../pages/OverviewPage'
@@ -152,6 +153,8 @@ function Page({
   }
   if (page.planned) return <PlannedPage item={page} />
   switch (page.path) {
+    case '/budget':
+      return <BudgetPage refreshKey={data.transactions} />
     case '/cash-flow':
       return <CashFlowPage refreshKey={data.transactions} />
     case '/business':

@@ -15,6 +15,8 @@ pub struct Category {
     pub kind: String,
     /// Plaid category mapped here ('' = uncategorised fallback); None for ones you created.
     pub plaid_primary: Option<String>,
+    /// Budget bucket: fixed, future or fun; None = not budgeted. Income categories never have one.
+    pub bucket: Option<String>,
     /// Transactions currently in this category.
     pub transaction_count: i64,
 }
@@ -24,6 +26,26 @@ pub struct CategoryInput {
     pub name: Option<String>,
     pub emoji: Option<String>,
     pub kind: Option<String>,
+    /// "fixed", "future", "fun", or "none" to take it out of the budget. Omitted = unchanged
+    /// (new categories: Fun for expenses, none otherwise).
+    pub bucket: Option<String>,
+}
+
+/// Resolves a requested bucket for a category of `kind`; income categories never have one.
+fn resolve_bucket(kind: &str, requested: Option<&str>, current: Option<String>) -> Result<Option<String>, CategoryError> {
+    let bucket = match requested {
+        None => current,
+        Some("none") => None,
+        Some(b) if super::budget::BUCKETS.contains(&b) => Some(b.to_string()),
+        Some(_) => return Err(CategoryError::Invalid("bucket must be fixed, future, fun or none")),
+    };
+    if kind == "income" {
+        if requested.is_some_and(|b| b != "none") {
+            return Err(CategoryError::Invalid("income categories aren't part of a budget bucket"));
+        }
+        return Ok(None);
+    }
+    Ok(bucket)
 }
 
 fn valid_name(s: &str) -> Result<String, CategoryError> {
@@ -59,7 +81,7 @@ async fn name_taken(db: &SqlitePool, name: &str, except: Option<i64>) -> sqlx::R
 /// All categories with how many transactions are in each, in display order.
 pub async fn list(db: &SqlitePool) -> sqlx::Result<Vec<Category>> {
     sqlx::query_as(&format!(
-        "SELECT cat.id, cat.name, cat.emoji, cat.kind, cat.plaid_primary,
+        "SELECT cat.id, cat.name, cat.emoji, cat.kind, cat.plaid_primary, cat.bucket,
                 (SELECT COUNT(*) FROM transactions t {} WHERE c.id = cat.id) AS transaction_count
          FROM categories cat ORDER BY cat.sort_order, cat.name COLLATE NOCASE",
         super::transaction::CATEGORY_JOIN
@@ -80,14 +102,17 @@ pub async fn create(db: &SqlitePool, input: &CategoryInput) -> Result<Category, 
     if name_taken(db, &name, None).await? {
         return Err(CategoryError::Invalid("a category with that name already exists"));
     }
+    let default_bucket = (kind == "expense").then(|| "fun".to_string());
+    let bucket = resolve_bucket(kind, input.bucket.as_deref(), default_bucket)?;
     // New categories go before Uncategorized (999), after the built-in ones.
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO categories (name, emoji, kind, sort_order)
-         VALUES (?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 10 FROM categories WHERE sort_order < 999)) RETURNING id",
+        "INSERT INTO categories (name, emoji, kind, bucket, sort_order)
+         VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 10 FROM categories WHERE sort_order < 999)) RETURNING id",
     )
     .bind(&name)
     .bind(&emoji)
     .bind(kind)
+    .bind(&bucket)
     .fetch_one(db)
     .await?;
     get(db, id).await
@@ -105,13 +130,15 @@ pub async fn update(db: &SqlitePool, id: i64, input: &CategoryInput) -> Result<C
     };
     let kind = input.kind.clone().unwrap_or(current.kind);
     valid_kind(&kind)?;
+    let bucket = resolve_bucket(&kind, input.bucket.as_deref(), current.bucket)?;
     if name_taken(db, &name, Some(id)).await? {
         return Err(CategoryError::Invalid("a category with that name already exists"));
     }
-    sqlx::query("UPDATE categories SET name = ?, emoji = ?, kind = ? WHERE id = ?")
+    sqlx::query("UPDATE categories SET name = ?, emoji = ?, kind = ?, bucket = ? WHERE id = ?")
         .bind(&name)
         .bind(&emoji)
         .bind(&kind)
+        .bind(&bucket)
         .bind(id)
         .execute(db)
         .await?;
@@ -149,12 +176,20 @@ mod tests {
             .unwrap();
         sqlx::migrate!("./migrations").run(&db).await.unwrap();
         let seeded = list(&db).await.unwrap();
-        assert_eq!(seeded.len(), 17);
+        assert_eq!(seeded.len(), 18, "17 from categories + Savings & investing from the budget");
         assert_eq!(seeded.last().unwrap().name, "Uncategorized");
 
-        let input = |name: &str, emoji: &str, kind: Option<&str>| CategoryInput { name: Some(name.into()), emoji: Some(emoji.into()), kind: kind.map(Into::into) };
+        let input = |name: &str, emoji: &str, kind: Option<&str>| CategoryInput { name: Some(name.into()), emoji: Some(emoji.into()), kind: kind.map(Into::into), bucket: None };
         let cards = create(&db, &input("Trading cards", "🃏", None)).await.unwrap();
-        assert_eq!((cards.kind.as_str(), cards.transaction_count), ("expense", 0));
+        assert_eq!((cards.kind.as_str(), cards.transaction_count, cards.bucket.as_deref()), ("expense", 0, Some("fun")));
+        // Buckets: move between them, take out of the budget, never on income.
+        let moved = update(&db, cards.id, &CategoryInput { name: None, emoji: None, kind: None, bucket: Some("future".into()) }).await.unwrap();
+        assert_eq!(moved.bucket.as_deref(), Some("future"));
+        assert!(update(&db, cards.id, &CategoryInput { name: None, emoji: None, kind: None, bucket: Some("someday".into()) }).await.is_err());
+        let as_income = update(&db, cards.id, &CategoryInput { name: None, emoji: None, kind: Some("income".into()), bucket: None }).await.unwrap();
+        assert_eq!(as_income.bucket, None, "becoming income leaves the budget");
+        assert!(update(&db, cards.id, &CategoryInput { name: None, emoji: None, kind: None, bucket: Some("fun".into()) }).await.is_err());
+        update(&db, cards.id, &CategoryInput { name: None, emoji: None, kind: Some("expense".into()), bucket: Some("fun".into()) }).await.unwrap();
         assert!(create(&db, &input("trading CARDS", "🎴", None)).await.is_err(), "names are unique ignoring case");
         assert!(create(&db, &input("x", "", None)).await.is_err());
         assert!(create(&db, &input("x", "a b", None)).await.is_err());
@@ -165,7 +200,7 @@ mod tests {
 
         // Rename a built-in one and change its emoji; can't delete it.
         let food = seeded.iter().find(|c| c.plaid_primary.as_deref() == Some("FOOD_AND_DRINK")).unwrap();
-        let renamed = update(&db, food.id, &CategoryInput { name: Some("Eating out".into()), emoji: Some("🍜".into()), kind: None }).await.unwrap();
+        let renamed = update(&db, food.id, &CategoryInput { name: Some("Eating out".into()), emoji: Some("🍜".into()), kind: None, bucket: None }).await.unwrap();
         assert_eq!((renamed.name.as_str(), renamed.emoji.as_str(), renamed.kind.as_str()), ("Eating out", "🍜", "expense"));
         assert!(delete(&db, food.id).await.is_err());
 

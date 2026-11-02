@@ -17,7 +17,7 @@ const SUGGESTED = [
 ]
 
 /** Pick from common emoji, or type / paste any emoji (the OS picker works too: Win + . or Ctrl + Cmd + Space). */
-function EmojiField({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
+export function EmojiField({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
   return (
     <div className="emoji-field">
       <Popover align="left" triggerClassName="emoji-button" ariaLabel={`${label}: ${value || 'none'}. Change emoji`} label={<span aria-hidden="true">{value || '＋'}</span>}>
