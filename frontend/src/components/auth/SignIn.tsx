@@ -5,7 +5,14 @@ interface Props {
 export function SignIn({ error }: Props) {
   return (
     <div className="auth-card">
-      <h1>Open Budget</h1>
+      <h1>
+        <a className="home-link" href="/">
+          <span className="logo" aria-hidden="true">
+            💵
+          </span>{' '}
+          Open Budget
+        </a>
+      </h1>
       <p className="muted-text">Sign in to see your accounts.</p>
       {error && (
         <div className="banner error" role="alert">

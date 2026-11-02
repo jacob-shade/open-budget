@@ -4,6 +4,7 @@ import { useFinanceData } from '../hooks/useFinanceData'
 import { AccountsPanel } from './AccountsPanel'
 import { PlaidLinkButton } from './PlaidLinkButton'
 import { TransactionsTable } from './TransactionsTable'
+import { UserMenu } from './UserMenu'
 
 interface Props {
   user: User
@@ -33,19 +34,20 @@ export function Dashboard({ user, onSignOut }: Props) {
   return (
     <div className="app">
       <header className="topbar">
-        <h1>Open Budget</h1>
+        <h1>
+          <a className="home-link" href="/">
+            <span className="logo" aria-hidden="true">
+              💵
+            </span>{' '}
+            Open Budget
+          </a>
+        </h1>
         <div className="actions">
           <button className="button" onClick={data.syncAll} disabled={data.syncing || data.items.length === 0}>
             {data.syncing ? 'Syncing…' : 'Sync'}
           </button>
           <PlaidLinkButton onLinked={onLinked} onError={setError} />
-          <div className="user-menu">
-            {user.picture_url && <img src={user.picture_url} alt="" referrerPolicy="no-referrer" />}
-            <span className="user-email">{user.email}</span>
-            <button className="button small" onClick={onSignOut}>
-              Sign out
-            </button>
-          </div>
+          <UserMenu user={user} onSignOut={onSignOut} />
         </div>
       </header>
 
