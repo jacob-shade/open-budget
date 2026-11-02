@@ -5,6 +5,9 @@ import type {
   BusinessKind,
   BusinessSummary,
   CashAdjustment,
+  CashFlow,
+  Category,
+  CategoryKind,
   CollectibleItem,
   DailySpending,
   ExchangeResult,
@@ -17,6 +20,7 @@ import type {
   NewSale,
   NewTrade,
   PaidVia,
+  Payout,
   Sale,
   SyncAllResult,
   SyncSummary,
@@ -67,8 +71,8 @@ export interface TransactionQuery {
   start?: string
   end?: string
   search?: string
-  /** Plaid primary categories, e.g. FOOD_AND_DRINK. */
-  categories?: string[]
+  /** Category ids. */
+  categories?: number[]
   direction?: 'all' | 'in' | 'out'
   limit?: number
   offset?: number
@@ -110,6 +114,14 @@ export const api = {
   syncAll: () => request<SyncAllResult>('POST', '/sync'),
   accounts: () => request<Account[]>('GET', '/accounts'),
   transactions: (params: TransactionQuery = {}) => request<Transaction[]>('GET', `/transactions?${transactionParams(params)}`),
+  /** Put a transaction in a category; null goes back to the automatic one. */
+  setTransactionCategory: (id: string, categoryId: number | null) =>
+    request<void>('PATCH', `/transactions/${encodeURIComponent(id)}`, { category_id: categoryId }),
+  categories: () => request<Category[]>('GET', '/categories'),
+  createCategory: (c: { name: string; emoji: string; kind: CategoryKind }) => request<Category>('POST', '/categories', c),
+  updateCategory: (id: number, c: Partial<{ name: string; emoji: string; kind: CategoryKind }>) =>
+    request<Category>('PATCH', `/categories/${id}`, c),
+  deleteCategory: (id: number) => request<void>('DELETE', `/categories/${id}`),
   /** Totals over every transaction matching the filters (limit/offset ignored). */
   transactionSummary: (params: TransactionQuery = {}) =>
     request<TransactionSummary>('GET', `/transactions/summary?${transactionParams(params)}`),
@@ -153,4 +165,10 @@ export const api = {
   createCash: (id: number, c: { date: string; amount_cents: number; description?: string }) =>
     request<{ id: number }>('POST', `/businesses/${id}/cash`, c),
   deleteCash: (id: number, rowId: number) => request<void>('DELETE', `/businesses/${id}/cash/${rowId}`),
+  payouts: (id: number) => request<Payout[]>('GET', `/businesses/${id}/payouts`),
+  createPayout: (id: number, p: { date: string; amount_cents: number; paid_via: PaidVia; description?: string }) =>
+    request<{ id: number }>('POST', `/businesses/${id}/payouts`, p),
+  deletePayout: (id: number, rowId: number) => request<void>('DELETE', `/businesses/${id}/payouts/${rowId}`),
+  /** Personal income streams (incl. business payouts) and spending by category, start..end inclusive. */
+  cashFlow: (start: string, end: string) => request<CashFlow>('GET', `/cash-flow?${new URLSearchParams({ start, end })}`),
 }

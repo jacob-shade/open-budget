@@ -284,7 +284,7 @@ export function SpendingChart({ refreshKey }: Props) {
             )}
           </div>
           <p className="chart-note muted">
-            Running total by day of the month. Transfers, card and loan payments, and income aren't counted as spending.
+            Running total by day of the month. Only Expense categories count, so transfers, card payments and income don't.
           </p>
 
           <details className="chart-table">

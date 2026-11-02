@@ -3,6 +3,7 @@
 mod accounts;
 mod auth;
 mod business;
+mod categories;
 mod items;
 mod plaid;
 mod transactions;
@@ -51,9 +52,15 @@ pub fn router(state: AppState) -> Router {
         .route("/api/businesses/{id}/expenses/{row}", delete(business::delete_expense))
         .route("/api/businesses/{id}/cash", get(business::cash).post(business::create_cash))
         .route("/api/businesses/{id}/cash/{row}", delete(business::delete_cash))
+        .route("/api/businesses/{id}/payouts", get(business::payouts).post(business::create_payout))
+        .route("/api/businesses/{id}/payouts/{row}", delete(business::delete_payout))
         .route("/api/transactions", get(transactions::index))
         .route("/api/transactions/summary", get(transactions::summary))
+        .route("/api/transactions/{id}", patch(transactions::update))
+        .route("/api/categories", get(categories::index).post(categories::create))
+        .route("/api/categories/{id}", patch(categories::update).delete(categories::destroy))
         .route("/api/spending/daily", get(transactions::daily_spending))
+        .route("/api/cash-flow", get(transactions::cash_flow))
         .route_layer(middleware::from_fn_with_state(state.clone(), auth::require_auth));
 
     public.merge(protected).with_state(state)
@@ -79,7 +86,7 @@ mod tests {
     };
 
     /// The real router over an in-memory database, plus a fully signed-in session cookie.
-    async fn app() -> (axum::Router, String) {
+    async fn app() -> (axum::Router, String, sqlx::SqlitePool) {
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(sqlx::sqlite::SqliteConnectOptions::new().in_memory(true).foreign_keys(true))
@@ -108,9 +115,9 @@ mod tests {
             plaid: Arc::new(PlaidClient::new(&config)),
             google: Arc::new(GoogleClient::new(&config)),
             config: Arc::new(config),
-            pool,
+            pool: pool.clone(),
         };
-        (super::router(state), format!("ob_session={token}"))
+        (super::router(state), format!("ob_session={token}"), pool)
     }
 
     async fn call(app: &axum::Router, cookie: Option<&str>, method: &str, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
@@ -131,10 +138,11 @@ mod tests {
 
     #[tokio::test]
     async fn business_routes_work_end_to_end_and_require_sign_in() {
-        let (app, cookie) = app().await;
+        let (app, cookie, _) = app().await;
         let c = Some(cookie.as_str());
 
         assert_eq!(call(&app, None, "GET", "/api/businesses", None).await.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(call(&app, None, "GET", "/api/cash-flow?start=2026-11-01&end=2026-11-30", None).await.0, StatusCode::UNAUTHORIZED);
         assert_eq!(call(&app, None, "POST", "/api/businesses", Some(json!({"name": "x", "kind": "general"}))).await.0, StatusCode::UNAUTHORIZED);
 
         let (s, b) = call(&app, c, "POST", "/api/businesses", Some(json!({"name": "Card Shop", "kind": "collectibles"}))).await;
@@ -175,6 +183,12 @@ mod tests {
             assert_eq!(s, StatusCode::OK, "{list}");
             assert!(v.as_array().is_some_and(|a| !a.is_empty()), "{list} empty");
         }
+        let (s, _) = call(&app, c, "POST", &format!("{base}/payouts"), Some(json!({"date": "2026-11-05", "amount_cents": 3000, "paid_via": "cash"}))).await;
+        assert_eq!(s, StatusCode::OK);
+        let (_, flow) = call(&app, c, "GET", "/api/cash-flow?start=2026-11-01&end=2026-11-30", None).await;
+        assert_eq!(flow["income"][0]["source"], "payout");
+        assert_eq!(flow["total_income_cents"], 3000);
+        assert_eq!(call(&app, c, "GET", "/api/cash-flow?start=bad&end=2026-11-30", None).await.0, StatusCode::BAD_REQUEST);
         let sale_id = sale["id"].as_i64().unwrap();
         assert_eq!(call(&app, c, "DELETE", &format!("{base}/sales/{sale_id}"), None).await.0, StatusCode::NO_CONTENT);
         assert_eq!(call(&app, c, "DELETE", &format!("{base}/sales/{sale_id}"), None).await.0, StatusCode::NOT_FOUND);
@@ -182,5 +196,47 @@ mod tests {
         assert_eq!(call(&app, c, "PATCH", "/api/accounts/nope", Some(json!({"business_id": id}))).await.0, StatusCode::NOT_FOUND);
         assert_eq!(call(&app, c, "DELETE", &base, None).await.0, StatusCode::NO_CONTENT);
         assert_eq!(call(&app, c, "GET", "/api/businesses", None).await.1, json!([]));
+    }
+
+    #[tokio::test]
+    async fn categories_and_recategorising_transactions() {
+        let (app, cookie, pool) = app().await;
+        let c = Some(cookie.as_str());
+        assert_eq!(call(&app, None, "GET", "/api/categories", None).await.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(call(&app, None, "PATCH", "/api/transactions/t1", Some(json!({"category_id": null}))).await.0, StatusCode::UNAUTHORIZED);
+
+        let (s, cats) = call(&app, c, "GET", "/api/categories", None).await;
+        assert_eq!(s, StatusCode::OK);
+        let food = cats.as_array().unwrap().iter().find(|x| x["plaid_primary"] == "FOOD_AND_DRINK").unwrap()["id"].as_i64().unwrap();
+
+        let (s, new) = call(&app, c, "POST", "/api/categories", Some(json!({"name": "Card show snacks", "emoji": "🌭"}))).await;
+        assert_eq!(s, StatusCode::OK, "{new}");
+        let snacks = new["id"].as_i64().unwrap();
+        let (s, edited) = call(&app, c, "PATCH", &format!("/api/categories/{food}"), Some(json!({"emoji": "🍕", "kind": "expense"}))).await;
+        assert_eq!((s, edited["emoji"].as_str()), (StatusCode::OK, Some("🍕")));
+        assert_eq!(call(&app, c, "DELETE", &format!("/api/categories/{food}"), None).await.0, StatusCode::BAD_REQUEST);
+
+        // A Plaid food transaction shows the edited emoji, then moves to the custom category and back.
+        sqlx::query("INSERT INTO items (id, access_token) VALUES ('i', 'tok')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO accounts (id, item_id, name, account_type) VALUES ('a', 'i', 'Card', 'credit')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO transactions (id, account_id, amount_cents, date, name, category_primary, pending) VALUES ('t1', 'a', -850, '2026-11-01', 'HOT DOG STAND', 'FOOD_AND_DRINK', 0)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let first = |v: Value| v.as_array().unwrap()[0].clone();
+        let t = first(call(&app, c, "GET", "/api/transactions", None).await.1);
+        assert_eq!((t["category_id"].as_i64(), t["category_emoji"].as_str(), t["category_overridden"].as_bool()), (Some(food), Some("🍕"), Some(false)));
+        assert_eq!(call(&app, c, "PATCH", "/api/transactions/t1", Some(json!({"category_id": snacks}))).await.0, StatusCode::NO_CONTENT);
+        let t = first(call(&app, c, "GET", &format!("/api/transactions?categories={snacks}"), None).await.1);
+        assert_eq!((t["category_name"].as_str(), t["category_overridden"].as_bool(), t["plaid_category"].as_str()), (Some("Card show snacks"), Some(true), Some("FOOD_AND_DRINK")));
+        assert_eq!(call(&app, c, "GET", &format!("/api/transactions?categories={food}"), None).await.1, json!([]));
+
+        assert_eq!(call(&app, c, "PATCH", "/api/transactions/missing", Some(json!({"category_id": snacks}))).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(call(&app, c, "PATCH", "/api/transactions/missing", Some(json!({"category_id": 999999}))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(call(&app, c, "GET", "/api/transactions?categories=abc", None).await.0, StatusCode::BAD_REQUEST);
+        // Deleting the custom category puts the transaction back in its automatic one.
+        assert_eq!(call(&app, c, "DELETE", &format!("/api/categories/{snacks}"), None).await.0, StatusCode::NO_CONTENT);
+        let t = first(call(&app, c, "GET", "/api/transactions", None).await.1);
+        assert_eq!((t["category_id"].as_i64(), t["category_overridden"].as_bool()), (Some(food), Some(false)));
     }
 }

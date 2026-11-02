@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../api/client'
-import type { Account, Transaction, TransactionSummary } from '../api/types'
-import { formatCategory, formatDate, formatMoney } from '../format'
-import { CATEGORIES } from '../lib/categories'
+import type { Account, Category, Transaction, TransactionSummary } from '../api/types'
+import { formatDate, formatMoney } from '../format'
+import { ManageCategories } from '../components/ManageCategories'
 import { Icon } from '../components/Icon'
 import { Popover } from '../components/Popover'
 import { Segmented } from '../components/Segmented'
@@ -70,7 +70,11 @@ export function TransactionsPage({ accounts, refreshKey, headerSlot }: Props) {
   const [preset, setPreset] = useState<Preset>(DEFAULT_PRESET)
   const [custom, setCustom] = useState<{ start: string; end: string }>({ start: '', end: '' })
   const [accountIds, setAccountIds] = useState<string[]>([])
-  const [categories, setCategories] = useState<string[]>([])
+  const [categoryIds, setCategoryIds] = useState<number[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [managing, setManaging] = useState(false)
+  // Bumped after categories are edited, to reload them and the list (names, emoji and types change).
+  const [categoryVersion, setCategoryVersion] = useState(0)
   const [direction, setDirection] = useState<Direction>('all')
   const [result, setResult] = useState<{ key: string; rows: Transaction[]; done: boolean; summary: TransactionSummary } | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -84,8 +88,8 @@ export function TransactionsPage({ accounts, refreshKey, headerSlot }: Props) {
 
   const range = preset === 'custom' ? { start: custom.start || undefined, end: custom.end || undefined } : presetRange(preset)
   const query = useMemo(
-    () => ({ search, start: range.start, end: range.end, accounts: accountIds, categories, direction }),
-    [search, range.start, range.end, accountIds, categories, direction],
+    () => ({ search, start: range.start, end: range.end, accounts: accountIds, categories: categoryIds, direction }),
+    [search, range.start, range.end, accountIds, categoryIds, direction],
   )
   const key = JSON.stringify(query)
 
@@ -102,7 +106,44 @@ export function TransactionsPage({ accounts, refreshKey, headerSlot }: Props) {
     return () => {
       cancelled = true
     }
-  }, [query, key, refreshKey])
+  }, [query, key, refreshKey, categoryVersion])
+
+  useEffect(() => {
+    let cancelled = false
+    api.categories().then(
+      (list) => !cancelled && setCategories(list),
+      (e: Error) => !cancelled && setError(e.message),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [categoryVersion])
+
+  /** Moves one transaction to a category (null = automatic), updating its row in place and refreshing the totals. */
+  const changeCategory = async (t: Transaction, categoryId: number | null) => {
+    const target =
+      categoryId != null
+        ? categories.find((c) => c.id === categoryId)
+        : (categories.find((c) => c.plaid_primary === (t.plaid_category ?? '')) ?? categories.find((c) => c.plaid_primary === ''))
+    if (!target) return
+    try {
+      await api.setTransactionCategory(t.id, categoryId)
+      const summary = await api.transactionSummary(query)
+      setResult((r) =>
+        r && {
+          ...r,
+          summary,
+          rows: r.rows.map((x) =>
+            x.id === t.id
+              ? { ...x, category_id: target.id, category_name: target.name, category_emoji: target.emoji, category_kind: target.kind, category_overridden: categoryId != null }
+              : x,
+          ),
+        },
+      )
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
 
   const loadMore = async () => {
     if (!result) return
@@ -117,7 +158,7 @@ export function TransactionsPage({ accounts, refreshKey, headerSlot }: Props) {
     }
   }
 
-  const filterCount = (accountIds.length ? 1 : 0) + (categories.length ? 1 : 0) + (direction !== 'all' ? 1 : 0)
+  const filterCount = (accountIds.length ? 1 : 0) + (categoryIds.length ? 1 : 0) + (direction !== 'all' ? 1 : 0)
   const anyActive = filterCount > 0 || preset !== DEFAULT_PRESET || search !== ''
   const rangeLabel =
     preset === 'custom'
@@ -129,14 +170,14 @@ export function TransactionsPage({ accounts, refreshKey, headerSlot }: Props) {
             ? `Until ${shortDate(custom.end)}`
             : 'All dates'
       : PRESETS.find((p) => p.value === preset)!.label
-  const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v])
+  const toggle = <T,>(list: T[], v: T) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v])
   const clearAll = () => {
     setSearchInput('')
     setSearch('')
     setPreset(DEFAULT_PRESET)
     setCustom({ start: '', end: '' })
     setAccountIds([])
-    setCategories([])
+    setCategoryIds([])
     setDirection('all')
   }
 
@@ -262,17 +303,24 @@ export function TransactionsPage({ accounts, refreshKey, headerSlot }: Props) {
             <fieldset className="filter-group">
               <legend className="field-label">
                 Categories
-                {categories.length > 0 && (
-                  <button className="link-button" onClick={() => setCategories([])}>
-                    Clear
+                <span>
+                  {categoryIds.length > 0 && (
+                    <button className="link-button" onClick={() => setCategoryIds([])}>
+                      Clear
+                    </button>
+                  )}
+                  <button className="link-button" onClick={() => setManaging(true)}>
+                    Edit
                   </button>
-                )}
+                </span>
               </legend>
               <div className="category-checks">
-                {CATEGORIES.map((c) => (
-                  <label key={c} className="check-row">
-                    <input type="checkbox" checked={categories.includes(c)} onChange={() => setCategories(toggle(categories, c))} />
-                    <span>{formatCategory(c)}</span>
+                {categories.map((c) => (
+                  <label key={c.id} className="check-row">
+                    <input type="checkbox" checked={categoryIds.includes(c.id)} onChange={() => setCategoryIds(toggle(categoryIds, c.id))} />
+                    <span>
+                      <span aria-hidden="true">{c.emoji}</span> {c.name}
+                    </span>
                   </label>
                 ))}
               </div>
@@ -287,6 +335,7 @@ export function TransactionsPage({ accounts, refreshKey, headerSlot }: Props) {
   return (
     <main>
       {headerSlot && createPortal(controls, headerSlot)}
+      {managing && <ManageCategories onClose={() => setManaging(false)} onChanged={() => setCategoryVersion((v) => v + 1)} />}
       {error && (
         <div className="banner error" role="alert">
           {error}
@@ -309,6 +358,9 @@ export function TransactionsPage({ accounts, refreshKey, headerSlot }: Props) {
               <TransactionsTable
                 transactions={rows}
                 title={anyActive ? `${result.summary.count.toLocaleString()} matching · ${rangeLabel}` : rangeLabel}
+                categories={categories}
+                onCategoryChange={(t, id) => void changeCategory(t, id)}
+                onManageCategories={() => setManaging(true)}
                 action={
                   anyActive && (
                     <button className="button small" onClick={clearAll}>
@@ -371,7 +423,7 @@ function SummaryBox({ summary, rangeLabel }: { summary: TransactionSummary; rang
           <dd>{largest ? formatMoney(largest.amount_cents) : '—'}</dd>
         </div>
       </dl>
-      <p className="chart-note muted">Spending, income and expenses leave out transfers and card or loan payments between your accounts.</p>
+      <p className="chart-note muted">Spending counts Expense categories; income leaves out Transfer categories (card payments, moving money between your accounts).</p>
     </section>
   )
 }

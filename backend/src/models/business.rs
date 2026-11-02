@@ -87,6 +87,15 @@ pub struct Expense {
 }
 
 #[derive(Debug, Serialize, FromRow)]
+pub struct Payout {
+    pub id: i64,
+    pub date: String,
+    pub amount_cents: i64,
+    pub paid_via: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
 pub struct CashAdjustment {
     pub id: i64,
     pub date: String,
@@ -167,6 +176,14 @@ pub struct NewExpense {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct NewPayout {
+    pub date: String,
+    pub amount_cents: i64,
+    pub paid_via: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct NewCashAdjustment {
     pub date: String,
     pub amount_cents: i64,
@@ -239,7 +256,7 @@ pub async fn rename_business(db: &SqlitePool, id: i64, name: &str) -> BResult<Bu
 pub async fn delete_business(db: &SqlitePool, id: i64) -> BResult<()> {
     let mut tx = db.begin().await?;
     // Items reference sales/trades; delete them first so the cascades never hit a dangling reference.
-    for table in ["collectible_items", "collectible_sales", "collectible_trades", "business_expenses", "cash_adjustments"] {
+    for table in ["collectible_items", "collectible_sales", "collectible_trades", "business_expenses", "cash_adjustments", "business_payouts"] {
         sqlx::query(&format!("DELETE FROM {table} WHERE business_id = ?")).bind(id).execute(&mut *tx).await?;
     }
     sqlx::query("UPDATE accounts SET business_id = NULL WHERE business_id = ?").bind(id).execute(&mut *tx).await?;
@@ -606,9 +623,34 @@ pub async fn create_cash(db: &SqlitePool, business_id: i64, c: &NewCashAdjustmen
         .await?)
 }
 
-/// Deletes an expense or cash adjustment row belonging to the business.
+pub async fn list_payouts(db: &SqlitePool, business_id: i64) -> sqlx::Result<Vec<Payout>> {
+    sqlx::query_as("SELECT id, date, amount_cents, paid_via, description FROM business_payouts WHERE business_id = ? ORDER BY date DESC, id DESC")
+        .bind(business_id)
+        .fetch_all(db)
+        .await
+}
+
+/// Records money you paid yourself; it counts as your personal income in Cash flow.
+pub async fn create_payout(db: &SqlitePool, business_id: i64, p: &NewPayout) -> BResult<i64> {
+    get_business(db, business_id).await?;
+    valid_date(&p.date)?;
+    valid_paid_via(&p.paid_via)?;
+    if p.amount_cents <= 0 {
+        return Err(BusinessError::Invalid("a payout must be more than zero"));
+    }
+    Ok(sqlx::query_scalar("INSERT INTO business_payouts (business_id, date, amount_cents, paid_via, description) VALUES (?, ?, ?, ?, ?) RETURNING id")
+        .bind(business_id)
+        .bind(&p.date)
+        .bind(p.amount_cents)
+        .bind(&p.paid_via)
+        .bind(opt_text(&p.description))
+        .fetch_one(db)
+        .await?)
+}
+
+/// Deletes an expense, cash adjustment or payout row belonging to the business.
 pub async fn delete_row(db: &SqlitePool, table: &'static str, business_id: i64, id: i64) -> BResult<()> {
-    debug_assert!(matches!(table, "business_expenses" | "cash_adjustments"));
+    debug_assert!(matches!(table, "business_expenses" | "cash_adjustments" | "business_payouts"));
     let res = sqlx::query(&format!("DELETE FROM {table} WHERE business_id = ? AND id = ?")).bind(business_id).bind(id).execute(db).await?;
     if res.rows_affected() == 0 {
         return Err(BusinessError::NotFound);
@@ -637,6 +679,8 @@ pub struct Summary {
     pub expenses_cents: i64,
     pub expenses_by_category: Vec<CategoryTotal>,
     pub profit_cents: i64,
+    /// Paid to you in the period (not an expense; doesn't change profit).
+    pub payouts_cents: i64,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -659,6 +703,7 @@ pub async fn summary(db: &SqlitePool, business_id: Option<i64>, start: &str, end
     let cash_buys = scalar("SELECT COALESCE(SUM(cost_cents), 0) FROM collectible_items WHERE acquired_via = 'purchase' AND purchase_paid_via = 'cash' AND (?1 IS NULL OR business_id = ?1)").fetch_one(db).await?;
     let cash_trades = scalar("SELECT COALESCE(SUM(cash_in_cents - cash_out_cents), 0) FROM collectible_trades WHERE paid_via = 'cash' AND (?1 IS NULL OR business_id = ?1)").fetch_one(db).await?;
     let cash_expenses = scalar("SELECT COALESCE(SUM(amount_cents), 0) FROM business_expenses WHERE paid_via = 'cash' AND (?1 IS NULL OR business_id = ?1)").fetch_one(db).await?;
+    let cash_payouts = scalar("SELECT COALESCE(SUM(amount_cents), 0) FROM business_payouts WHERE paid_via = 'cash' AND (?1 IS NULL OR business_id = ?1)").fetch_one(db).await?;
     let bank = scalar(
         "SELECT COALESCE(SUM(CASE WHEN account_type IN ('credit', 'loan') THEN -COALESCE(current_balance_cents, 0) ELSE COALESCE(current_balance_cents, 0) END), 0)
          FROM accounts WHERE business_id IS NOT NULL AND (?1 IS NULL OR business_id = ?1)",
@@ -702,9 +747,12 @@ pub async fn summary(db: &SqlitePool, business_id: Option<i64>, start: &str, end
     .fetch_all(db)
     .await?;
     let expenses_cents = expenses_by_category.iter().map(|c| c.amount_cents).sum();
+    let payouts_cents = period("SELECT COALESCE(SUM(amount_cents), 0) FROM business_payouts WHERE (?1 IS NULL OR business_id = ?1) AND date >= ?2 AND date <= ?3")
+        .fetch_one(db)
+        .await?;
 
     Ok(Summary {
-        cash_on_hand_cents: cash_adj + cash_sales - cash_buys + cash_trades - cash_expenses,
+        cash_on_hand_cents: cash_adj + cash_sales - cash_buys + cash_trades - cash_expenses - cash_payouts,
         bank_cents: bank,
         inventory_count,
         inventory_value_cents,
@@ -716,6 +764,7 @@ pub async fn summary(db: &SqlitePool, business_id: Option<i64>, start: &str, end
         expenses_cents,
         profit_cents: sales_cents + trade_gain_cents - cost_of_sold_cents - selling_costs_cents - expenses_cents,
         expenses_by_category,
+        payouts_cents,
     })
 }
 
@@ -853,5 +902,12 @@ mod tests {
         }).await.unwrap();
         let s = summary(&db, Some(b.id), "2026-10-01", "2026-10-31").await.unwrap();
         assert_eq!((s.trade_gain_cents, s.profit_cents, s.inventory_cost_cents, s.cash_on_hand_cents), (3000, 3000, 0, 8000));
+
+        // Paying yourself $50 in cash: cash drops, profit doesn't; a bank payout doesn't touch cash.
+        create_payout(&db, b.id, &NewPayout { date: "2026-10-03".into(), amount_cents: 5000, paid_via: "cash".into(), description: None }).await.unwrap();
+        create_payout(&db, b.id, &NewPayout { date: "2026-10-04".into(), amount_cents: 2000, paid_via: "bank".into(), description: None }).await.unwrap();
+        assert!(create_payout(&db, b.id, &NewPayout { date: "2026-10-04".into(), amount_cents: 0, paid_via: "bank".into(), description: None }).await.is_err());
+        let s = summary(&db, Some(b.id), "2026-10-01", "2026-10-31").await.unwrap();
+        assert_eq!((s.profit_cents, s.cash_on_hand_cents, s.payouts_cents), (3000, 3000, 7000));
     }
 }

@@ -38,10 +38,29 @@ export interface Transaction {
   authorized_date: string | null
   name: string
   merchant_name: string | null
-  category: string | null
+  /** Plaid's own primary category, e.g. FOOD_AND_DRINK (what "Automatic" uses). */
+  plaid_category: string | null
   category_detailed: string | null
+  category_id: number
+  category_name: string
+  category_emoji: string
+  category_kind: CategoryKind
+  /** True when you picked the category yourself. */
+  category_overridden: boolean
   pending: boolean
   logo_url: string | null
+}
+
+export type CategoryKind = 'expense' | 'income' | 'transfer'
+
+export interface Category {
+  id: number
+  name: string
+  emoji: string
+  kind: CategoryKind
+  /** Plaid category mapped here ('' = uncategorised fallback); null for ones you created. */
+  plaid_primary: string | null
+  transaction_count: number
 }
 
 export interface SyncSummary {
@@ -185,6 +204,16 @@ export interface BusinessSummary {
   expenses_cents: number
   expenses_by_category: { category: ExpenseCategory; amount_cents: number }[]
   profit_cents: number
+  /** Paid to you in the period; not an expense, so profit is unchanged. */
+  payouts_cents: number
+}
+
+export interface Payout {
+  id: number
+  date: string
+  amount_cents: number
+  paid_via: PaidVia
+  description: string | null
 }
 
 export interface NewItem {
@@ -226,4 +255,13 @@ export interface TransactionSummary {
   income_cents: number
   average_expense_cents: number | null
   largest_expense: { id: string; name: string; date: string; amount_cents: number } | null
+}
+
+export interface CashFlow {
+  /** Largest first. source "payout" = money paid to you from a business. */
+  income: { label: string; source: 'income' | 'payout'; business_id: number | null; cents: number }[]
+  /** Largest first; Expense categories only. */
+  spending: { category_id: number; name: string; emoji: string; cents: number }[]
+  total_income_cents: number
+  total_spending_cents: number
 }

@@ -21,7 +21,7 @@ pub struct TransactionQuery {
     pub end: Option<String>,
     /// Text to find in the name or merchant.
     pub q: Option<String>,
-    /// Comma-separated Plaid primary categories.
+    /// Comma-separated category ids.
     pub categories: Option<String>,
     /// "in" (money in) or "out" (money out).
     pub direction: Option<String>,
@@ -60,7 +60,10 @@ fn parse_filter(q: TransactionQuery) -> AppResult<TransactionFilter> {
         start: q.start,
         end: q.end,
         search: q.q.map(|s| s.chars().take(100).collect()),
-        categories: split_list(q.categories),
+        categories: split_list(q.categories)
+            .iter()
+            .map(|c| c.parse::<i64>().map_err(|_| crate::error::AppError::BadRequest("categories must be ids")))
+            .collect::<Result<_, _>>()?,
         money_in,
         limit: q.limit.unwrap_or(100).clamp(1, 500),
         offset: q.offset.unwrap_or(0).max(0),
@@ -132,4 +135,35 @@ mod tests {
         assert!(!super::is_iso_date("2026/11/02"));
         assert!(!super::is_iso_date("20261102xx"));
     }
+}
+
+#[derive(Deserialize)]
+pub struct UpdateTransaction {
+    /// The category to put this transaction in; null goes back to the automatic one.
+    category_id: Option<i64>,
+}
+
+/// Changes a transaction's category. The choice survives re-syncs.
+pub async fn update(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(body): Json<UpdateTransaction>,
+) -> AppResult<axum::http::StatusCode> {
+    if let Some(c) = body.category_id {
+        if !crate::models::category::exists(&state.pool, c).await? {
+            return Err(crate::error::AppError::BadRequest("no such category"));
+        }
+    }
+    if !Transaction::set_category(&state.pool, &id, body.category_id).await? {
+        return Err(crate::error::AppError::NotFound);
+    }
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+/// Personal income streams (including business payouts) and spending by category for a period.
+pub async fn cash_flow(State(state): State<AppState>, Query(q): Query<SpendingQuery>) -> AppResult<Json<crate::models::cash_flow::CashFlow>> {
+    if !is_iso_date(&q.start) || !is_iso_date(&q.end) || q.start > q.end {
+        return Err(crate::error::AppError::BadRequest("start and end must be YYYY-MM-DD, start <= end"));
+    }
+    Ok(Json(crate::models::cash_flow::cash_flow(&state.pool, &q.start, &q.end).await?))
 }

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../../api/client'
-import type { Account, Business, BusinessSummary, CashAdjustment, CollectibleItem, Expense, Sale, Trade } from '../../api/types'
+import type { Account, Business, BusinessSummary, CashAdjustment, CollectibleItem, Expense, Payout, Sale, Trade } from '../../api/types'
 import { formatDate, formatMoney } from '../../format'
 import { EXPENSE_LABELS, KIND_LABELS } from '../../lib/businessLabels'
 import { PERIODS, periodRange, type Period } from '../../lib/money'
 import { Segmented } from '../Segmented'
-import { BusinessDialog, CashDialog, ExpenseDialog, ItemDialog, SaleDialog, TradeDialog } from './forms'
+import { BusinessDialog, CashDialog, ExpenseDialog, ItemDialog, PayoutDialog, SaleDialog, TradeDialog } from './forms'
 
-type Tab = 'inventory' | 'sales' | 'trades' | 'expenses' | 'cash' | 'accounts'
+type Tab = 'inventory' | 'sales' | 'trades' | 'expenses' | 'payouts' | 'cash' | 'accounts'
 type StatusFilter = 'in_stock' | 'sold' | 'traded' | 'all'
 type DialogState =
   | { kind: 'rename' }
@@ -16,6 +16,7 @@ type DialogState =
   | { kind: 'trade'; given: CollectibleItem[] }
   | { kind: 'expense' }
   | { kind: 'cash' }
+  | { kind: 'payout' }
   | null
 
 interface Props {
@@ -34,6 +35,7 @@ interface Records {
   trades: Trade[]
   expenses: Expense[]
   cash: CashAdjustment[]
+  payouts: Payout[]
 }
 
 const paidLabel = (v: string | null) => (v === 'cash' ? 'Cash' : v === 'bank' ? 'Bank' : '—')
@@ -64,10 +66,11 @@ export function BusinessDetail({ business, businesses, accounts, onAccountsChang
       collectibles ? api.trades(id) : Promise.resolve([]),
       api.expenses(id),
       api.cash(id),
+      api.payouts(id),
     ]).then(
-      ([summary, items, sales, trades, expenses, cash]) => {
+      ([summary, items, sales, trades, expenses, cash, payouts]) => {
         if (cancelled) return
-        setRecords({ key, data: { summary, items, sales, trades, expenses, cash } })
+        setRecords({ key, data: { summary, items, sales, trades, expenses, cash, payouts } })
         setError(null)
       },
       (e: Error) => !cancelled && setError(e.message),
@@ -109,12 +112,14 @@ export function BusinessDetail({ business, businesses, accounts, onAccountsChang
         { value: 'sales', label: 'Sales' },
         { value: 'trades', label: 'Trades' },
         { value: 'expenses', label: 'Expenses' },
+        { value: 'payouts', label: 'Payouts' },
         { value: 'cash', label: 'Cash' },
         { value: 'accounts', label: 'Bank accounts' },
       ]
     : [
         { value: 'sales', label: 'Income' },
         { value: 'expenses', label: 'Expenses' },
+        { value: 'payouts', label: 'Payouts' },
         { value: 'cash', label: 'Cash' },
         { value: 'accounts', label: 'Bank accounts' },
       ]
@@ -132,6 +137,9 @@ export function BusinessDetail({ business, businesses, accounts, onAccountsChang
           <span className="muted">{KIND_LABELS[business.kind]}</span>
         </div>
         <div className="panel-controls">
+          <button className="button small primary" onClick={() => setDialog({ kind: 'payout' })}>
+            Pay yourself
+          </button>
           <button className="button small" onClick={() => setDialog({ kind: 'rename' })}>
             Rename
           </button>
@@ -234,6 +242,10 @@ export function BusinessDetail({ business, businesses, accounts, onAccountsChang
                 <div className="ledger-total">
                   <dt>{s!.profit_cents < 0 ? 'Loss' : 'Profit'}</dt>
                   <dd className={s!.profit_cents < 0 ? 'negative' : ''}>{formatMoney(s!.profit_cents)}</dd>
+                </div>
+                <div className="ledger-note">
+                  <dt>Paid to you</dt>
+                  <dd>{formatMoney(s!.payouts_cents)}</dd>
                 </div>
               </dl>
               <div>
@@ -436,11 +448,33 @@ export function BusinessDetail({ business, businesses, accounts, onAccountsChang
               </>
             )}
 
+            {tab === 'payouts' && (
+              <>
+                <div className="toolbar">
+                  <span className="muted-text">Money you took out for yourself. Only payouts count as your personal income in Cash flow.</span>
+                  <span className="toolbar-spacer" />
+                  <button className="button small primary" onClick={() => setDialog({ kind: 'payout' })}>
+                    Pay yourself
+                  </button>
+                </div>
+                <RecordTable
+                  empty="No payouts yet."
+                  money={1}
+                  head={['Date', 'Description', 'Paid from', 'Amount']}
+                  rows={data.payouts.map((x) => ({
+                    id: x.id,
+                    cells: [formatDate(x.date), x.description ?? '—', paidLabel(x.paid_via), formatMoney(x.amount_cents)],
+                    action: { label: 'Delete', confirm: 'Delete this payout?', run: () => run(() => api.deletePayout(business.id, x.id)) },
+                  }))}
+                />
+              </>
+            )}
+
             {tab === 'cash' && (
               <>
                 <div className="toolbar">
                   <span className="muted-text">
-                    Cash on hand is {formatMoney(s!.cash_on_hand_cents)}: these adjustments plus cash sales, purchases, trades and expenses.
+                    Cash on hand is {formatMoney(s!.cash_on_hand_cents)}: these adjustments plus cash sales, purchases, trades, expenses and payouts.
                   </span>
                   <span className="toolbar-spacer" />
                   <button className="button small primary" onClick={() => setDialog({ kind: 'cash' })}>
@@ -512,6 +546,7 @@ export function BusinessDetail({ business, businesses, accounts, onAccountsChang
       {dialog?.kind === 'trade' && <TradeDialog businessId={business.id} given={dialog.given} onClose={() => setDialog(null)} onSaved={afterSave} />}
       {dialog?.kind === 'expense' && <ExpenseDialog businessId={business.id} onClose={() => setDialog(null)} onSaved={afterSave} />}
       {dialog?.kind === 'cash' && <CashDialog businessId={business.id} onClose={() => setDialog(null)} onSaved={afterSave} />}
+      {dialog?.kind === 'payout' && <PayoutDialog businessId={business.id} onClose={() => setDialog(null)} onSaved={afterSave} />}
     </div>
   )
 }

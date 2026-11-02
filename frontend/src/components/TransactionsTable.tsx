@@ -1,12 +1,17 @@
 import { useMemo, type ReactNode } from 'react'
-import type { Transaction } from '../api/types'
-import { formatCategory, formatMoney } from '../format'
+import type { Category, Transaction } from '../api/types'
+import { formatMoney } from '../format'
+import { CategoryPicker } from './CategoryPicker'
 
 interface Props {
   transactions: Transaction[]
   title: string
   /** Optional control shown at the right of the header (e.g. "View all"). */
   action?: ReactNode
+  /** With these, each category can be changed from its row. */
+  categories?: Category[]
+  onCategoryChange?: (t: Transaction, categoryId: number | null) => void
+  onManageCategories?: () => void
 }
 
 interface Day {
@@ -44,7 +49,7 @@ function dayLabel(iso: string): string {
 }
 
 /** Transactions grouped by day: a date row with the day's net total, then that day's transactions. */
-export function TransactionsTable({ transactions, title, action }: Props) {
+export function TransactionsTable({ transactions, title, action, categories, onCategoryChange, onManageCategories }: Props) {
   const days = useMemo(() => groupByDay(transactions), [transactions])
   return (
     <section className="panel">
@@ -90,7 +95,15 @@ export function TransactionsTable({ transactions, title, action }: Props) {
                         </span>
                       </div>
                     </td>
-                    <td>{formatCategory(t.category)}</td>
+                    <td>
+                      {categories && onCategoryChange ? (
+                        <CategoryPicker transaction={t} categories={categories} onPick={(id) => onCategoryChange(t, id)} onManage={() => onManageCategories?.()} />
+                      ) : (
+                        <span className="category-label">
+                          <span aria-hidden="true">{t.category_emoji}</span> {t.category_name}
+                        </span>
+                      )}
+                    </td>
                     <td className="muted">{t.account_name}</td>
                     <td className={`num ${t.amount_cents > 0 ? 'positive' : ''}`}>
                       {t.amount_cents > 0 ? '+' : ''}

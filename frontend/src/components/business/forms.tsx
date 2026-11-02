@@ -473,3 +473,41 @@ export function CashDialog({ businessId, onClose, onSaved }: { businessId: numbe
     </Dialog>
   )
 }
+
+export function PayoutDialog({ businessId, onClose, onSaved }: { businessId: number; onClose: () => void; onSaved: () => void }) {
+  const [amount, setAmount] = useState('')
+  const [date, setDate] = useState(todayIso())
+  const [paidVia, setPaidVia] = useState<PaidVia>('bank')
+  const [description, setDescription] = useState('')
+  return (
+    <Dialog
+      title="Pay yourself"
+      submitLabel="Record payout"
+      onClose={onClose}
+      canSubmit={amount.trim().length > 0}
+      onSubmit={async () => {
+        const c = cents('Amount', amount)
+        if (c <= 0) throw new Error('Enter an amount more than zero')
+        await api.createPayout(businessId, { date, amount_cents: c, paid_via: paidVia, description })
+        onSaved()
+      }}
+    >
+      <p className="muted-text">
+        Money you take out of the business for yourself. It counts as your personal income in Cash flow; it isn't a business expense, so profit
+        doesn't change.
+      </p>
+      <div className="field-row">
+        <Field label="Amount">
+          <input className="input money" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" autoFocus />
+        </Field>
+        <Field label="Date">
+          <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+        </Field>
+      </div>
+      <PaidViaField label="Paid from" value={paidVia} onChange={setPaidVia} />
+      <Field label="Description">
+        <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. Monthly draw" />
+      </Field>
+    </Dialog>
+  )
+}

@@ -160,3 +160,17 @@ pub async fn delete_cash(State(s): State<AppState>, Path((id, row)): Path<(i64, 
     m::delete_row(&s.pool, "cash_adjustments", id, row).await?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+pub async fn payouts(State(s): State<AppState>, Path(id): Path<i64>) -> AppResult<Json<Vec<m::Payout>>> {
+    m::get_business(&s.pool, id).await?;
+    Ok(Json(m::list_payouts(&s.pool, id).await?))
+}
+
+pub async fn create_payout(State(s): State<AppState>, Path(id): Path<i64>, Json(n): Json<m::NewPayout>) -> AppResult<Json<Created>> {
+    Ok(Json(Created { id: m::create_payout(&s.pool, id, &n).await? }))
+}
+
+pub async fn delete_payout(State(s): State<AppState>, Path((id, row)): Path<(i64, i64)>) -> AppResult<StatusCode> {
+    m::delete_row(&s.pool, "business_payouts", id, row).await?;
+    Ok(StatusCode::NO_CONTENT)
+}

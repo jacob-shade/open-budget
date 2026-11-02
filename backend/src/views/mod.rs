@@ -82,8 +82,16 @@ pub struct TransactionView {
     pub authorized_date: Option<String>,
     pub name: String,
     pub merchant_name: Option<String>,
-    pub category: Option<String>,
+    /// Plaid's own primary category (e.g. FOOD_AND_DRINK), shown as the automatic choice.
+    pub plaid_category: Option<String>,
     pub category_detailed: Option<String>,
+    pub category_id: i64,
+    pub category_name: String,
+    pub category_emoji: String,
+    /// expense | income | transfer
+    pub category_kind: String,
+    /// True when you picked the category yourself.
+    pub category_overridden: bool,
     pub pending: bool,
     pub logo_url: Option<String>,
 }
@@ -100,8 +108,13 @@ impl From<Transaction> for TransactionView {
             authorized_date: t.authorized_date,
             name: t.name,
             merchant_name: t.merchant_name,
-            category: t.category_primary,
+            plaid_category: t.category_primary,
             category_detailed: t.category_detailed,
+            category_id: t.category_id,
+            category_name: t.category_name,
+            category_emoji: t.category_emoji,
+            category_kind: t.category_kind,
+            category_overridden: t.category_overridden,
             pending: t.pending,
             logo_url: t.logo_url,
         }

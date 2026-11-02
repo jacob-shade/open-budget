@@ -4,6 +4,7 @@ import { useFinanceData, type FinanceData } from '../hooks/useFinanceData'
 import { NAV, type NavItem } from '../nav'
 import { AccountsPage } from '../pages/AccountsPage'
 import { BusinessPage } from '../pages/BusinessPage'
+import { CashFlowPage } from '../pages/CashFlowPage'
 import { OverviewPage } from '../pages/OverviewPage'
 import { PlannedPage } from '../pages/PlannedPage'
 import { TransactionsPage } from '../pages/TransactionsPage'
@@ -151,6 +152,8 @@ function Page({
   }
   if (page.planned) return <PlannedPage item={page} />
   switch (page.path) {
+    case '/cash-flow':
+      return <CashFlowPage refreshKey={data.transactions} />
     case '/business':
       return <BusinessPage data={data} path={path} />
     case '/accounts':

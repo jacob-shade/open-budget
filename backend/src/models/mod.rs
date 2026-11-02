@@ -2,6 +2,8 @@
 
 pub mod account;
 pub mod business;
+pub mod cash_flow;
+pub mod category;
 pub mod item;
 pub mod session;
 pub mod transaction;
