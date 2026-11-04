@@ -23,29 +23,45 @@ function takeAuthError(): string | null {
   return AUTH_ERRORS[code] ?? 'Sign-in failed. Please try again.'
 }
 
+const ANONYMOUS: AuthState = { status: 'anonymous', user: null }
+
+/** Asks the server who is signed in. Never rejects: a failure means signed out, with the reason. */
+function fetchAuth(): Promise<{ auth: AuthState; error: string | null }> {
+  return api.me().then(
+    (auth) => ({ auth, error: null }),
+    (e: Error) => ({ auth: ANONYMOUS, error: e.message }),
+  )
+}
+
 export function useAuth() {
+  // The first check starts while the app first renders, not in an effect; the effect only applies
+  // its answer. (In development, StrictMode may start it twice; both are the same harmless GET.)
+  const [initial] = useState(fetchAuth)
   const [auth, setAuth] = useState<AuthState | null>(null)
   const [error, setError] = useState<string | null>(takeAuthError)
 
-  const refresh = useCallback(async () => {
-    try {
-      setAuth(await api.me())
-    } catch (e) {
-      setError((e as Error).message)
-      setAuth({ status: 'anonymous', user: null })
-    }
+  const apply = useCallback((r: { auth: AuthState; error: string | null }) => {
+    setAuth(r.auth)
+    if (r.error) setError(r.error)
   }, [])
 
+  const refresh = useCallback(() => fetchAuth().then(apply), [apply])
+
   useEffect(() => {
-    void refresh()
+    let live = true
+    void initial.then((r) => live && apply(r))
+    // A request that comes back "session expired" signs you out here too.
     const onExpired = () => void refresh()
     window.addEventListener(SESSION_EXPIRED_EVENT, onExpired)
-    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired)
-  }, [refresh])
+    return () => {
+      live = false
+      window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired)
+    }
+  }, [initial, apply, refresh])
 
   const logout = useCallback(async () => {
     await api.logout().catch(() => {})
-    setAuth({ status: 'anonymous', user: null })
+    setAuth(ANONYMOUS)
   }, [])
 
   return { auth, error, setError, refresh, logout }

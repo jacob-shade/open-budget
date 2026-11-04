@@ -2,8 +2,22 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api/client'
 import type { Account, Item, Transaction } from '../api/types'
 
+interface Snapshot {
+  items: Item[]
+  accounts: Account[]
+  transactions: Transaction[]
+}
+
+/** Connections, accounts and the latest 200 transactions, fetched together. */
+function fetchSnapshot(): Promise<Snapshot> {
+  return Promise.all([api.items(), api.accounts(), api.transactions({ limit: 200 })]).then(([items, accounts, transactions]) => ({ items, accounts, transactions }))
+}
+
 /** Loads and mutates the app's data; components only render what this returns. */
 export function useFinanceData() {
+  // The first load starts while the app first renders, not in an effect; the effect only applies
+  // the result. (In development, StrictMode may start it twice; both are the same harmless GETs.)
+  const [initial] = useState(fetchSnapshot)
   const [items, setItems] = useState<Item[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
@@ -12,23 +26,30 @@ export function useFinanceData() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
-  const refresh = useCallback(async () => {
-    try {
-      const [i, a, t] = await Promise.all([api.items(), api.accounts(), api.transactions({ limit: 200 })])
-      setItems(i)
-      setAccounts(a)
-      setTransactions(t)
-      setError(null)
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setLoading(false)
-    }
+  const apply = useCallback((d: Snapshot) => {
+    setItems(d.items)
+    setAccounts(d.accounts)
+    setTransactions(d.transactions)
+    setError(null)
+    setLoading(false)
+  }, [])
+  const fail = useCallback((e: Error) => {
+    setError(e.message)
+    setLoading(false)
   }, [])
 
+  const refresh = useCallback(() => fetchSnapshot().then(apply, fail), [apply, fail])
+
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    let live = true
+    initial.then(
+      (d) => live && apply(d),
+      (e: Error) => live && fail(e),
+    )
+    return () => {
+      live = false
+    }
+  }, [initial, apply, fail])
 
   const syncAll = useCallback(async () => {
     setSyncing(true)
