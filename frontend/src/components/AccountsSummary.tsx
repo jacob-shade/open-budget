@@ -7,12 +7,14 @@ import { Segmented } from './Segmented'
 
 type Mode = 'amount' | 'percent'
 
+const pctOf = (cents: number, total: number) => (total > 0 ? `${((cents / total) * 100).toFixed(1)}%` : '—')
+
 const MODES: { value: Mode; label: string }[] = [
   { value: 'amount', label: '$' },
   { value: 'percent', label: '%' },
 ]
 
-/** Assets and liabilities broken down by type; % shows each type's share of its side. */
+/** Assets and liabilities broken down by type; % shows each type's share of its side (side totals stay in dollars). */
 export function AccountsSummary({ groups }: { groups: AccountGroup[] }) {
   const [mode, setMode] = useState<Mode>('amount')
   const [shown, toggleShown] = useAmountsShown()
@@ -26,22 +28,24 @@ export function AccountsSummary({ groups }: { groups: AccountGroup[] }) {
       <div className="summary-head">
         <h3>{title}</h3>
         <span className={kind === 'liability' && total > 0 ? 'negative' : ''}>
-          {mode === 'amount' ? (shown ? formatMoney(total) : HIDDEN_AMOUNT) : total > 0 ? '100%' : '—'}
+          {shown ? formatMoney(total) : HIDDEN_AMOUNT}
         </span>
       </div>
-      <ul>
-        {list.map((g) => {
-          const share = total > 0 ? g.totalCents / total : 0
-          return (
-            <li key={g.key}>
-              <span className="summary-label">{g.label}</span>
-              <span className="summary-track" aria-hidden="true">
-                <span className={`summary-bar ${kind}`} style={{ width: `${share * 100}%` }} />
-              </span>
-              <span className="summary-value">{mode === 'amount' ? (shown ? formatMoney(g.totalCents) : HIDDEN_AMOUNT) : `${(share * 100).toFixed(1)}%`}</span>
-            </li>
-          )
-        })}
+      {/* One bar per side: each type's share, colour fixed per type, with the key below. */}
+      <div className="summary-stack" role="img" aria-label={`${title}: ${list.map((g) => `${g.label} ${pctOf(g.totalCents, total)}`).join(', ')}`}>
+        {total > 0 &&
+          list
+            .filter((g) => g.totalCents > 0)
+            .map((g) => <span key={g.key} className="summary-seg" style={{ flexGrow: g.totalCents, background: `var(--seg-${g.key})` }} />)}
+      </div>
+      <ul className="summary-key">
+        {list.map((g) => (
+          <li key={g.key}>
+            <span className="summary-swatch" style={{ background: `var(--seg-${g.key})` }} aria-hidden="true" />
+            <span className="summary-label">{g.label}</span>
+            <span className="summary-value">{mode === 'amount' ? (shown ? formatMoney(g.totalCents) : HIDDEN_AMOUNT) : pctOf(g.totalCents, total)}</span>
+          </li>
+        ))}
       </ul>
     </div>
   )

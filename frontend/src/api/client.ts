@@ -127,6 +127,8 @@ export const api = {
   createCategory: (c: { name: string; emoji: string; kind: CategoryKind; bucket?: Bucket | 'none' }) => request<Category>('POST', '/categories', c),
   updateCategory: (id: number, c: Partial<{ name: string; emoji: string; kind: CategoryKind; bucket: Bucket | 'none' }>) =>
     request<Category>('PATCH', `/categories/${id}`, c),
+  /** Category ids in their new order (one list); other categories keep their places. */
+  reorderCategories: (ids: number[]) => request<void>('PUT', '/categories/order', { ids }),
   deleteCategory: (id: number) => request<void>('DELETE', `/categories/${id}`),
   /** Totals over every transaction matching the filters (limit/offset ignored). */
   transactionSummary: (params: TransactionQuery = {}) =>

@@ -12,10 +12,12 @@ interface Props {
   wide?: boolean
   /** Disables submit (e.g. while the form is incomplete). */
   canSubmit?: boolean
+  /** Shown at the left of the buttons, e.g. a Delete button. */
+  extraAction?: ReactNode
 }
 
 /** Modal form built on <dialog>: focus is trapped, Escape and the backdrop close it. */
-export function Dialog({ title, submitLabel, onClose, onSubmit, children, wide, canSubmit = true }: Props) {
+export function Dialog({ title, submitLabel, onClose, onSubmit, children, wide, canSubmit = true, extraAction }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   const backdrop = useBackdropClose(ref, onClose)
   const [busy, setBusy] = useState(false)
@@ -57,6 +59,7 @@ export function Dialog({ title, submitLabel, onClose, onSubmit, children, wide, 
         )}
         <div className="dialog-body">{children}</div>
         <div className="dialog-actions">
+          {extraAction && <div className="dialog-extra">{extraAction}</div>}
           <button type="button" className="button" onClick={onClose}>
             Cancel
           </button>

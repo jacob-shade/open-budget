@@ -159,6 +159,28 @@ pub async fn delete(db: &SqlitePool, id: i64) -> Result<(), CategoryError> {
     Ok(())
 }
 
+/// Puts `ids` in the given order, using the slots they already hold in the overall list, so
+/// categories elsewhere (other buckets) keep their places. A slot pinned to the end (sort_order
+/// 999 and up, e.g. Uncategorized) stays pinned whichever category ends up in it.
+pub async fn reorder(db: &SqlitePool, ids: &[i64]) -> Result<(), CategoryError> {
+    let mut tx = db.begin().await?;
+    let all: Vec<(i64, i64)> = sqlx::query_as("SELECT id, sort_order FROM categories ORDER BY sort_order, name COLLATE NOCASE")
+        .fetch_all(&mut *tx)
+        .await?;
+    let mut seen = std::collections::HashSet::new();
+    if ids.is_empty() || !ids.iter().all(|id| seen.insert(*id) && all.iter().any(|(a, _)| a == id)) {
+        return Err(CategoryError::Invalid("unknown or repeated category in the new order"));
+    }
+    let mut next = ids.iter();
+    for (i, (id, slot_order)) in all.iter().enumerate() {
+        let id = if seen.contains(id) { *next.next().expect("one id per slot") } else { *id };
+        let order = if *slot_order >= 999 { *slot_order } else { i as i64 + 1 };
+        sqlx::query("UPDATE categories SET sort_order = ? WHERE id = ?").bind(order).bind(id).execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 pub async fn exists(db: &SqlitePool, id: i64) -> sqlx::Result<bool> {
     Ok(sqlx::query_scalar::<_, i64>("SELECT id FROM categories WHERE id = ?").bind(id).fetch_optional(db).await?.is_some())
 }

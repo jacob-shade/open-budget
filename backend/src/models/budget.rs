@@ -1,4 +1,4 @@
-//! Budget: income planned vs actual, and spending in the Fixed / Future / Fun buckets.
+//! Budget: income planned vs actual, and spending in the Fundamentals / Future / Fun buckets (stored as fixed/future/fun).
 
 use std::collections::BTreeMap;
 
@@ -43,6 +43,8 @@ pub struct CategoryRow {
     pub emoji: String,
     pub kind: String,
     pub bucket: Option<String>,
+    /// Built-in (Plaid's categories map to it): can be renamed or moved but not deleted.
+    pub builtin: bool,
     /// Planned per month; None if not planned.
     pub planned_monthly_cents: Option<i64>,
     /// Money out of personal accounts in this category during the period.
@@ -76,9 +78,9 @@ pub async fn budget(db: &SqlitePool, start: &str, end: &str) -> sqlx::Result<Bud
     let interest_accounts: Vec<(String, String, i64, i64)> = sqlx::query_as(&format!(
         "SELECT a.id, {}, a.apy_bps,
                 COALESCE(a.current_balance_cents, 0) - COALESCE((SELECT SUM(t.amount_cents) FROM transactions t WHERE t.account_id = a.id AND t.date >= ?), 0)
-         FROM accounts a WHERE a.apy_bps IS NOT NULL AND a.business_id IS NULL AND a.account_type NOT IN ('credit', 'loan')
+         FROM accounts a WHERE COALESCE(a.apy_bps, 0) > 0 AND a.business_id IS NULL AND a.account_type NOT IN ('credit', 'loan')
          UNION ALL
-         SELECT 'manual-' || m.id, {}, m.apy_bps, m.balance_cents FROM manual_accounts m WHERE m.apy_bps IS NOT NULL AND m.business_id IS NULL AND m.account_type NOT IN ('credit', 'loan')",
+         SELECT 'manual-' || m.id, {}, m.apy_bps, m.balance_cents FROM manual_accounts m WHERE COALESCE(m.apy_bps, 0) > 0 AND m.business_id IS NULL AND m.account_type NOT IN ('credit', 'loan')",
         super::account::display_name("a", true),
         super::account::display_name("m", false),
     ))
@@ -112,7 +114,7 @@ pub async fn budget(db: &SqlitePool, start: &str, end: &str) -> sqlx::Result<Bud
     });
 
     let categories: Vec<CategoryRow> = sqlx::query_as(&format!(
-        "SELECT cat.id, cat.name, cat.emoji, cat.kind, cat.bucket,
+        "SELECT cat.id, cat.name, cat.emoji, cat.kind, cat.bucket, cat.plaid_primary IS NOT NULL AS builtin,
                 (SELECT monthly_cents FROM budget_category_plans WHERE category_id = cat.id) AS planned_monthly_cents,
                 COALESCE((SELECT SUM(-t.amount_cents) FROM transactions t JOIN accounts a ON a.id = t.account_id {CATEGORY_JOIN}
                           WHERE c.id = cat.id AND a.business_id IS NULL AND t.amount_cents < 0 AND t.date >= ?1 AND t.date <= ?2), 0) AS actual_cents
@@ -283,6 +285,10 @@ mod tests {
         assert_eq!(name_of(&crate::models::account::Account::all(&db).await.unwrap()), "Online Savings");
         assert!(!crate::models::account::Account::set_nickname(&db, "manual-1", Some("x")).await.unwrap());
         assert!(b2.income.iter().all(|r| r.label != "Interest Paid"), "interest isn't also listed as ordinary income");
+        // At 0% APY the account isn't an income source.
+        sqlx::query("UPDATE accounts SET apy_bps = 0 WHERE id = 's'").execute(&db).await.unwrap();
+        let b0 = budget(&db, "2026-11-01", "2026-11-30").await.unwrap();
+        assert!(b0.income.iter().all(|r| r.source != "interest"), "0% APY isn't interest income");
         sqlx::query("DELETE FROM transactions WHERE id IN ('i0', 'i1')").execute(&db).await.unwrap();
         sqlx::query("DELETE FROM accounts WHERE id = 's'").execute(&db).await.unwrap();
 
@@ -290,6 +296,7 @@ mod tests {
         assert_eq!((by_bucket("fixed"), by_bucket("future"), by_bucket("fun")), (120000, 50000, 4000));
         assert!(b.categories.iter().all(|c| c.kind != "income"), "income categories aren't budgeted");
         let card = b.categories.iter().find(|c| c.name == "Card & loan payments").unwrap();
+        assert!(card.builtin, "seeded categories are built in");
         assert_eq!((card.bucket.as_deref(), card.actual_cents), (None, 20000));
 
         // Category plans: set, read back, reject income categories and negatives, remove.

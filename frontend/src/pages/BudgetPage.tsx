@@ -1,9 +1,10 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { api } from '../api/client'
 import type { Bucket, Budget, BudgetPercentages } from '../api/types'
 import { formatMoney } from '../format'
 import { centsToInput, parseCents } from '../lib/money'
 import { CategorySettingsDialog } from '../components/CategorySettingsDialog'
+import { Dialog, Field } from '../components/Dialog'
 import { Icon } from '../components/Icon'
 import { EmojiField } from '../components/ManageCategories'
 import { Segmented } from '../components/Segmented'
@@ -17,7 +18,7 @@ const SCALES: { value: Scale; label: string }[] = [
 ]
 
 const BUCKETS: { key: Bucket; label: string; emoji: string; pct: keyof BudgetPercentages; hint: string }[] = [
-  { key: 'fixed', label: 'Fixed', emoji: '🏠', pct: 'fixed_pct', hint: 'Bills and essentials' },
+  { key: 'fixed', label: 'Fundamentals', emoji: '🏠', pct: 'fixed_pct', hint: 'Bills and essentials' },
   { key: 'future', label: 'Future', emoji: '🌱', pct: 'future_pct', hint: 'Saving and investing' },
   { key: 'fun', label: 'Fun', emoji: '🎉', pct: 'fun_pct', hint: 'Everything you enjoy' },
 ]
@@ -50,7 +51,7 @@ const thisMonth = () => {
   return new Date(t.getFullYear(), t.getMonth(), 1)
 }
 
-/** Income planned vs actual, the Fixed / Future / Fun split, and which categories sit in each bucket. */
+/** Income planned vs actual, the Fundamentals / Future / Fun split, and which categories sit in each bucket. */
 export function BudgetPage({ refreshKey }: { refreshKey: unknown }) {
   const [scale, setScale] = useState<Scale>('month')
   const [anchor, setAnchor] = useState(thisMonth)
@@ -123,7 +124,12 @@ export function BudgetPage({ refreshKey }: { refreshKey: unknown }) {
         <p className="empty">Loading…</p>
       ) : (
         <div className={`budget-body${result.key !== key ? ' stale' : ''}`}>
-          <IncomeTable data={d} months={period.months} onPlan={(source, label, cents) => run(() => api.setIncomePlan(source, label, cents))} />
+          <IncomeTable
+            data={d}
+            months={period.months}
+            onPlan={(source, label, cents) => run(() => api.setIncomePlan(source, label, cents))}
+            onAdded={() => void run(async () => {})}
+          />
           <Buckets data={d} months={period.months} onSave={(p) => run(() => api.setBudgetPercentages(p))} />
           <BucketLists data={d} months={period.months} onChange={run} />
         </div>
@@ -177,24 +183,30 @@ function PlannedCell({ value, onSave, label }: { value: number | null; onSave: (
   )
 }
 
-function IncomeTable({ data, months, onPlan }: { data: Budget; months: number; onPlan: (source: 'income' | 'payout', label: string, monthlyCents: number | null) => void }) {
-  const [newLabel, setNewLabel] = useState('')
-  const [newAmount, setNewAmount] = useState('')
+function IncomeTable({
+  data,
+  months,
+  onPlan,
+  onAdded,
+}: {
+  data: Budget
+  months: number
+  onPlan: (source: 'income' | 'payout', label: string, monthlyCents: number | null) => void
+  onAdded: () => void
+}) {
+  const [adding, setAdding] = useState(false)
   const plannedTotal = data.income.reduce((s, r) => s + (r.planned_monthly_cents ?? 0) * months, 0)
   const actualTotal = data.income.reduce((s, r) => s + r.actual_cents, 0)
-  const add = (e: FormEvent) => {
-    e.preventDefault()
-    const c = parseCents(newAmount)
-    if (!newLabel.trim() || c === null || c < 0) return
-    onPlan('income', newLabel.trim(), c)
-    setNewLabel('')
-    setNewAmount('')
-  }
   return (
     <section className="panel">
       <div className="panel-header">
-        <h2>Income</h2>
-        {months > 1 && <span className="muted-text small">Planned amounts are per month × {months}</span>}
+        <h2 className="heading-with-total">
+          Income
+          {months > 1 && <span className="heading-total">planned amounts are per month × {months}</span>}
+        </h2>
+        <button className="button small" onClick={() => setAdding(true)}>
+          Add income
+        </button>
       </div>
       <div className="table-wrap">
         <table className="budget-income">
@@ -211,7 +223,7 @@ function IncomeTable({ data, months, onPlan }: { data: Budget; months: number; o
             {data.income.length === 0 && (
               <tr>
                 <td colSpan={5} className="empty compact">
-                  No income yet. Add what you expect below.
+                  No income yet. Use Add income to plan what you expect.
                 </td>
               </tr>
             )}
@@ -265,14 +277,37 @@ function IncomeTable({ data, months, onPlan }: { data: Budget; months: number; o
           </tfoot>
         </table>
       </div>
-      <form className="add-income" onSubmit={add}>
-        <input className="input" placeholder="Add an income source" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} aria-label="New income source" />
-        <input className="input money" inputMode="decimal" placeholder="Per month" value={newAmount} onChange={(e) => setNewAmount(e.target.value)} aria-label="Planned per month" />
-        <button className="button small" type="submit" disabled={!newLabel.trim() || parseCents(newAmount) === null}>
-          Add
-        </button>
-      </form>
+      {adding && (
+        <AddIncomeDialog existing={data.income.map((r) => r.label)} onClose={() => setAdding(false)} onAdded={onAdded} />
+      )}
     </section>
+  )
+}
+
+/** Modal for a new planned income source. */
+function AddIncomeDialog({ existing, onClose, onAdded }: { existing: string[]; onClose: () => void; onAdded: () => void }) {
+  const [label, setLabel] = useState('')
+  const [amount, setAmount] = useState('')
+  const cents = parseCents(amount)
+  const taken = existing.some((l) => l.trim().toLowerCase() === label.trim().toLowerCase())
+  return (
+    <Dialog
+      title="Add income source"
+      submitLabel="Add"
+      onClose={onClose}
+      canSubmit={label.trim().length > 0 && cents !== null && cents >= 0 && !taken}
+      onSubmit={async () => {
+        await api.setIncomePlan('income', label.trim(), cents)
+        onAdded()
+      }}
+    >
+      <Field label="Name" hint={taken ? 'There is already an income source with this name. Change its planned amount in the table.' : 'For example your employer, a side job or rental income.'}>
+        <input className="input" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={80} autoFocus />
+      </Field>
+      <Field label="Planned per month">
+        <input className="input money" inputMode="decimal" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} />
+      </Field>
+    </Dialog>
   )
 }
 
@@ -390,13 +425,6 @@ function Buckets({ data, months, onSave }: { data: Budget; months: number; onSav
 
 // ---------- categories per bucket ----------
 
-const MOVE_OPTIONS: { value: Bucket | 'none'; label: string }[] = [
-  { value: 'fixed', label: '🏠 Fixed' },
-  { value: 'future', label: '🌱 Future' },
-  { value: 'fun', label: '🎉 Fun' },
-  { value: 'none', label: 'Not budgeted' },
-]
-
 function NewCategory({ bucket, onAdd }: { bucket: Bucket; onAdd: (name: string, emoji: string) => Promise<void> }) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
@@ -439,20 +467,112 @@ function remainingCell(planned: number | null, actual: number) {
 }
 
 function BucketLists({ data, months, onChange }: { data: Budget; months: number; onChange: (action: () => Promise<unknown>) => Promise<void> }) {
-  const move = (id: number, bucket: Bucket | 'none') => onChange(() => api.updateCategory(id, { bucket }))
   const plan = (id: number, cents: number | null) => onChange(() => api.setCategoryPlan(id, cents))
   const { base } = incomeBase(data, months)
   const [settingsFor, setSettingsFor] = useState<Budget['categories'][number] | null>(null)
   const notBudgeted = data.categories.filter((c) => c.bucket === null)
   const perMonth = months > 1 ? ' / month' : ''
 
-  const rows = (list: Budget['categories']) =>
-    list.map((c) => {
+  // Dragging a row by its grip: `ids` is the list's order while dragging (and while saving, so it
+  // doesn't jump back before the refreshed budget arrives); `id` is the row being moved.
+  const [drag, setDrag] = useState<{ ids: number[]; id: number | null } | null>(null)
+  const dragStart = useRef<number[]>([])
+  const ordered = (list: Budget['categories']) => {
+    if (!drag || !list.some((c) => drag.ids.includes(c.id))) return list
+    const byId = new Map(list.map((c) => [c.id, c]))
+    return drag.ids.flatMap((id) => byId.get(id) ?? [])
+  }
+  const save = (ids: number[]) => {
+    const changed = ids.some((id, i) => id !== dragStart.current[i])
+    if (!changed) return setDrag(null)
+    setDrag({ ids, id: null })
+    void onChange(() => api.reorderCategories(ids)).finally(() => setDrag(null))
+  }
+  const saveRef = useRef(save)
+  useEffect(() => {
+    saveRef.current = save
+  })
+  // The row moves in the DOM as you drag, which drops pointer capture, so the move and release are
+  // followed on the window. The ref holds the live order for those listeners.
+  const live = useRef<{ ids: number[]; id: number; tbody: HTMLElement } | null>(null)
+  const startDrag = (e: PointerEvent<HTMLButtonElement>, list: Budget['categories'], id: number) => {
+    const tbody = e.currentTarget.closest('tbody')
+    if (e.button !== 0 || drag || !tbody) return
+    e.preventDefault()
+    dragStart.current = list.map((c) => c.id)
+    live.current = { ids: dragStart.current, id, tbody }
+    setDrag({ ids: dragStart.current, id })
+  }
+  const dragging = drag?.id != null
+  useEffect(() => {
+    if (!dragging) return
+    const move = (e: globalThis.PointerEvent) => {
+      const d = live.current
+      if (!d) return
+      // The new index is how many of the other rows sit above the pointer.
+      const others = [...d.tbody.querySelectorAll<HTMLTableRowElement>('tr[data-cat]')].filter((tr) => Number(tr.dataset.cat) !== d.id)
+      const index = others.filter((tr) => {
+        const r = tr.getBoundingClientRect()
+        return r.top + r.height / 2 < e.clientY
+      }).length
+      const ids = d.ids.filter((x) => x !== d.id)
+      ids.splice(index, 0, d.id)
+      if (ids.some((x, i) => x !== d.ids[i])) {
+        live.current = { ...d, ids }
+        setDrag({ ids, id: d.id })
+      }
+    }
+    const up = () => {
+      const d = live.current
+      live.current = null
+      if (d) saveRef.current(d.ids)
+    }
+    document.body.classList.add('dragging-rows')
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
+    return () => {
+      document.body.classList.remove('dragging-rows')
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+    }
+  }, [dragging])
+  // Keyboard: arrow up/down on the grip moves the row one place and saves.
+  const keyMove = (e: KeyboardEvent<HTMLButtonElement>, list: Budget['categories'], id: number) => {
+    if ((e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || drag) return
+    e.preventDefault()
+    const ids = list.map((c) => c.id)
+    const i = ids.indexOf(id)
+    const j = e.key === 'ArrowUp' ? i - 1 : i + 1
+    if (j < 0 || j >= ids.length) return
+    ;[ids[i], ids[j]] = [ids[j], ids[i]]
+    dragStart.current = list.map((c) => c.id)
+    save(ids)
+    const button = e.currentTarget
+    requestAnimationFrame(() => button.focus())
+  }
+
+  const rows = (unordered: Budget['categories']) => {
+    const list = ordered(unordered)
+    return list.map((c) => {
       const planned = c.planned_monthly_cents != null ? c.planned_monthly_cents * months : null
       return (
-        <tr key={c.id} className="category-row-hover">
+        <tr key={c.id} data-cat={c.id} className={`category-row-hover${drag?.id === c.id ? ' dragging' : ''}`}>
           <td>
             <span className="category-cell">
+              <button
+                type="button"
+                className="grip-button"
+                onPointerDown={(e) => startDrag(e, list, c.id)}
+                onKeyDown={(e) => keyMove(e, list, c.id)}
+                aria-label={`Reorder ${c.name}. Use the up and down arrow keys to move it.`}
+                title="Drag to reorder"
+              >
+                <svg width="10" height="16" viewBox="0 0 10 16" aria-hidden="true">
+                  {[3, 8, 13].flatMap((cy) => [2.5, 7.5].map((cx) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="1.5" fill="currentColor" />))}
+                </svg>
+              </button>
               <span className="bucket-category">
                 <span className="category-option">
                   <span aria-hidden="true">{c.emoji}</span>
@@ -470,18 +590,10 @@ function BucketLists({ data, months, onChange }: { data: Budget; months: number;
           </td>
           <td className="num">{formatMoney(c.actual_cents)}</td>
           {remainingCell(planned, c.actual_cents)}
-          <td className="move-cell">
-            <select className="select" value={c.bucket ?? 'none'} onChange={(e) => void move(c.id, e.target.value as Bucket | 'none')} aria-label={`Bucket for ${c.name}`}>
-              {MOVE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </td>
         </tr>
       )
     })
+  }
 
   const head = (
     <thead>
@@ -490,7 +602,6 @@ function BucketLists({ data, months, onChange }: { data: Budget; months: number;
         <th className="num">Planned{perMonth}</th>
         <th className="num">Actual</th>
         <th className="num">Remaining</th>
-        <th className="move-cell">Bucket</th>
       </tr>
     </thead>
   )
@@ -537,12 +648,15 @@ function BucketLists({ data, months, onChange }: { data: Budget; months: number;
                       return (
                         <tr key={`interest:${r.label}`} className="interest-row">
                           <td>
-                            <span className="bucket-category">
-                              <span className="category-option">
-                                <span aria-hidden="true">📈</span>
-                                {r.label}
+                            <span className="category-cell">
+                              <span className="grip-spacer" aria-hidden="true" />
+                              <span className="bucket-category">
+                                <span className="category-option">
+                                  <span aria-hidden="true">📈</span>
+                                  {r.label}
+                                </span>
+                                <span className="muted">Reinvested automatically · {pct(r.apy_bps)} APY</span>
                               </span>
-                              <span className="muted">Reinvested automatically · {pct(r.apy_bps)} APY</span>
                             </span>
                           </td>
                           <td className="num">
@@ -552,7 +666,6 @@ function BucketLists({ data, months, onChange }: { data: Budget; months: number;
                           </td>
                           <td className="num">{formatMoney(r.actual_cents)}</td>
                           {remainingCell(planned, r.actual_cents)}
-                          <td className="move-cell muted-cell">Auto</td>
                         </tr>
                       )
                     })}
@@ -570,7 +683,6 @@ function BucketLists({ data, months, onChange }: { data: Budget; months: number;
                       ) : (
                         <th className="num">—</th>
                       )}
-                      <th />
                     </tr>
                   </tfoot>
                 </table>

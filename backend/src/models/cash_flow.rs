@@ -8,8 +8,8 @@ use sqlx::{FromRow, SqlitePool};
 
 use super::transaction::CATEGORY_JOIN;
 
-/// Interest paid into an account you set an APY for: money in, named or categorised as interest.
-pub const IS_INTEREST: &str = "(a.apy_bps IS NOT NULL AND a.account_type NOT IN ('credit', 'loan') AND t.amount_cents > 0
+/// Interest paid into an account you set an APY above 0% for: money in, named or categorised as interest.
+pub const IS_INTEREST: &str = "(COALESCE(a.apy_bps, 0) > 0 AND a.account_type NOT IN ('credit', 'loan') AND t.amount_cents > 0
     AND (t.category_detailed = 'INCOME_INTEREST_EARNED' OR LOWER(t.name) LIKE '%interest%'))";
 
 #[derive(Debug, Serialize, FromRow, PartialEq, Eq)]

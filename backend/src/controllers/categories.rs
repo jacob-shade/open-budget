@@ -1,4 +1,4 @@
-//! Categories: list, create, rename / re-emoji / change type, delete.
+//! Categories: list, create, rename / re-emoji / change type, reorder, delete.
 
 use axum::{
     Json,
@@ -26,5 +26,16 @@ pub async fn update(State(s): State<AppState>, Path(id): Path<i64>, Json(input):
 
 pub async fn destroy(State(s): State<AppState>, Path(id): Path<i64>) -> AppResult<StatusCode> {
     m::delete(&s.pool, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(serde::Deserialize)]
+pub struct OrderInput {
+    /// Category ids in their new order (one bucket's list).
+    pub ids: Vec<i64>,
+}
+
+pub async fn reorder(State(s): State<AppState>, Json(input): Json<OrderInput>) -> AppResult<StatusCode> {
+    m::reorder(&s.pool, &input.ids).await?;
     Ok(StatusCode::NO_CONTENT)
 }

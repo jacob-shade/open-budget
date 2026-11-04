@@ -64,6 +64,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/transactions/summary", get(transactions::summary))
         .route("/api/transactions/{id}", patch(transactions::update))
         .route("/api/categories", get(categories::index).post(categories::create))
+        .route("/api/categories/order", put(categories::reorder))
         .route("/api/categories/{id}", patch(categories::update).delete(categories::destroy))
         .route("/api/spending/daily", get(transactions::daily_spending))
         .route("/api/cash-flow", get(transactions::cash_flow))
@@ -228,6 +229,17 @@ mod tests {
         let (s, new) = call(&app, c, "POST", "/api/categories", Some(json!({"name": "Card show snacks", "emoji": "🌭"}))).await;
         assert_eq!(s, StatusCode::OK, "{new}");
         let snacks = new["id"].as_i64().unwrap();
+        // Reorder: the two swap places and everything else keeps its position.
+        let order = |cats: &serde_json::Value| cats.as_array().unwrap().iter().map(|c| c["id"].as_i64().unwrap()).collect::<Vec<_>>();
+        let before = order(&call(&app, c, "GET", "/api/categories", None).await.1);
+        let (a, b) = (before[0], before[2]);
+        assert_eq!(call(&app, None, "PUT", "/api/categories/order", Some(json!({"ids": [b, a]}))).await.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(call(&app, c, "PUT", "/api/categories/order", Some(json!({"ids": [b, a]}))).await.0, StatusCode::NO_CONTENT);
+        let mut expected = before.clone();
+        expected.swap(0, 2);
+        assert_eq!(order(&call(&app, c, "GET", "/api/categories", None).await.1), expected);
+        assert_eq!(call(&app, c, "PUT", "/api/categories/order", Some(json!({"ids": [a, a]}))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(call(&app, c, "PUT", "/api/categories/order", Some(json!({"ids": [999999]}))).await.0, StatusCode::BAD_REQUEST);
         let (s, edited) = call(&app, c, "PATCH", &format!("/api/categories/{food}"), Some(json!({"emoji": "🍕", "kind": "expense"}))).await;
         assert_eq!((s, edited["emoji"].as_str()), (StatusCode::OK, Some("🍕")));
         assert_eq!(call(&app, c, "DELETE", &format!("/api/categories/{food}"), None).await.0, StatusCode::BAD_REQUEST);

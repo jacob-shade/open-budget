@@ -107,7 +107,7 @@ export interface Budget {
     balance_cents: number | null
   }[]
   /** Expense and transfer categories with money out in the period. */
-  categories: { id: number; name: string; emoji: string; kind: CategoryKind; bucket: Bucket | null; planned_monthly_cents: number | null; actual_cents: number }[]
+  categories: { id: number; name: string; emoji: string; kind: CategoryKind; bucket: Bucket | null; builtin: boolean; planned_monthly_cents: number | null; actual_cents: number }[]
 }
 
 export interface SyncSummary {
