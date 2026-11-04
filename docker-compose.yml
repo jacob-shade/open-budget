@@ -14,7 +14,7 @@ services:
       STATIC_DIR: /app/static
       DATABASE_URL: sqlite:///data/budget.db
     ports:
-      # Published on the host's loopback only: the app has no login and holds bank access tokens.
+      # Published on the host's loopback only. To reach it from outside, use a Cloudflare Tunnel (see README).
       - "127.0.0.1:3000:3000"
     volumes:
       - budget-data:/data

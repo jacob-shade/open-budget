@@ -91,7 +91,8 @@ export function AppShell({ user, onSignOut }: Props) {
             </button>
             <h1>{page?.label ?? 'Page not found'}</h1>
           </div>
-          {page?.path === '/transactions' ? (
+          {/* These pages put their own controls in the header instead of Sync / Connect a bank. */}
+          {page?.path === '/transactions' || page?.path === '/budget' ? (
             <div className="actions page-actions" ref={setHeaderSlot} />
           ) : (
             <div className="actions">
@@ -154,7 +155,7 @@ function Page({
   if (page.planned) return <PlannedPage item={page} />
   switch (page.path) {
     case '/budget':
-      return <BudgetPage refreshKey={data.transactions} />
+      return <BudgetPage refreshKey={data.transactions} headerSlot={headerSlot} />
     case '/cash-flow':
       return <CashFlowPage refreshKey={data.transactions} />
     case '/business':

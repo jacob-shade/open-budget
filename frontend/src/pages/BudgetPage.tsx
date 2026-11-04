@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../api/client'
 import type { Bucket, Budget, BudgetPercentages } from '../api/types'
 import { formatMoney } from '../format'
@@ -38,6 +39,38 @@ function periodOf(scale: Scale, anchor: Date) {
   return { start: `${d}-01-01`, end: `${d + 9}-12-31`, months: 120, label: `${d}s` }
 }
 
+/**
+ * How far through [start, end] today is (0–1), measured to the middle of today, or null when the
+ * period doesn't include today. Day 10 of a 30-day month → 9.5 / 30 ≈ 32%.
+ */
+function elapsedShare(start: string, end: string): number | null {
+  const day = (iso: string) => {
+    const [y, m, d] = iso.split('-').map(Number)
+    return Date.UTC(y, m - 1, d) / 86_400_000
+  }
+  const now = new Date()
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86_400_000
+  const first = day(start)
+  const last = day(end)
+  if (today < first || today > last) return null
+  return (today - first + 0.5) / (last - first + 1)
+}
+
+/** Today's position in the period being viewed, for the marker on every progress bar. */
+const TodayShare = createContext<number | null>(null)
+
+/** A bar with a thin vertical line at today's point in the period (when the period includes today). */
+function WithToday({ children, block }: { children: ReactNode; block?: boolean }) {
+  const share = useContext(TodayShare)
+  const Wrap = block ? 'div' : 'span'
+  return (
+    <Wrap className="bar-wrap">
+      {children}
+      {share != null && <span className="today-marker" style={{ left: `${share * 100}%` }} title="Today" aria-hidden="true" />}
+    </Wrap>
+  )
+}
+
 function shift(scale: Scale, anchor: Date, by: number): Date {
   const y = anchor.getFullYear()
   const m = anchor.getMonth()
@@ -52,7 +85,7 @@ const thisMonth = () => {
 }
 
 /** Income planned vs actual, the Fundamentals / Future / Fun split, and which categories sit in each bucket. */
-export function BudgetPage({ refreshKey }: { refreshKey: unknown }) {
+export function BudgetPage({ refreshKey, headerSlot }: { refreshKey: unknown; headerSlot: HTMLElement | null }) {
   const [scale, setScale] = useState<Scale>('month')
   const [anchor, setAnchor] = useState(thisMonth)
   const [result, setResult] = useState<{ key: string; data: Budget } | null>(null)
@@ -89,52 +122,142 @@ export function BudgetPage({ refreshKey }: { refreshKey: unknown }) {
   const current = periodOf(scale, thisMonth()).start === period.start
   const d = result?.data
 
-  return (
-    <main className="budget-page">
-      <div className="budget-period">
-        <Segmented label="Budget period" options={SCALES} value={scale} onChange={setScale} />
-        <div className="period-nav">
-          <button className="icon-button" onClick={() => setAnchor(shift(scale, anchor, -1))} aria-label={`Previous ${scale}`}>
-            ‹
+  const periodControls = (
+    <div className="budget-period">
+      <div className="period-nav">
+        <button className="icon-button" onClick={() => setAnchor(shift(scale, anchor, -1))} aria-label={`Previous ${scale}`}>
+          ‹
+        </button>
+        <span className="period-label" aria-live="polite">
+          {period.label}
+        </span>
+        <button className="icon-button" onClick={() => setAnchor(shift(scale, anchor, 1))} aria-label={`Next ${scale}`}>
+          ›
+        </button>
+        {!current && (
+          <button className="button small" onClick={() => setAnchor(thisMonth())}>
+            {scale === 'month' ? 'This month' : scale === 'year' ? 'This year' : 'This decade'}
           </button>
-          <span className="period-label" aria-live="polite">
-            {period.label}
-          </span>
-          <button className="icon-button" onClick={() => setAnchor(shift(scale, anchor, 1))} aria-label={`Next ${scale}`}>
-            ›
-          </button>
-          {!current && (
-            <button className="button small" onClick={() => setAnchor(thisMonth())}>
-              {scale === 'month' ? 'This month' : scale === 'year' ? 'This year' : 'This decade'}
-            </button>
-          )}
-        </div>
+        )}
       </div>
+      <Segmented label="Budget period" options={SCALES} value={scale} onChange={setScale} />
+    </div>
+  )
 
-      {error && (
-        <div className="banner error" role="alert">
-          {error}
-          <button onClick={() => setError(null)} aria-label="Dismiss">
-            ×
-          </button>
+  return (
+    <TodayShare.Provider value={elapsedShare(period.start, period.end)}>
+      <main className="budget-page">
+        {/* The period controls sit in the page header, where other pages have Sync / Connect a bank. */}
+        {headerSlot && createPortal(periodControls, headerSlot)}
+
+        {error && (
+          <div className="banner error" role="alert">
+            {error}
+            <button onClick={() => setError(null)} aria-label="Dismiss">
+              ×
+            </button>
+          </div>
+        )}
+
+        {!d ? (
+          <p className="empty">Loading…</p>
+        ) : (
+          <div className={`budget-layout${result.key !== key ? ' stale' : ''}`}>
+            <div className="budget-body">
+              <IncomeTable
+                data={d}
+                months={period.months}
+                onPlan={(source, label, cents) => run(() => api.setIncomePlan(source, label, cents))}
+                onAdded={() => void run(async () => {})}
+              />
+              <Buckets data={d} months={period.months} onSave={(p) => run(() => api.setBudgetPercentages(p))} />
+              <BucketLists data={d} months={period.months} onChange={run} />
+            </div>
+            <BudgetSummary data={d} months={period.months} />
+          </div>
+        )}
+      </main>
+    </TodayShare.Provider>
+  )
+}
+
+// ---------- summary ----------
+
+/** Planned and actual for one bucket over the period; Future includes interest reinvested automatically. */
+function bucketTotals(data: Budget, months: number, bucket: Bucket) {
+  const rows = [...data.categories.filter((c) => c.bucket === bucket), ...(bucket === 'future' ? interestRows(data) : [])]
+  return {
+    planned: rows.reduce((s, r) => s + (r.planned_monthly_cents ?? 0) * months, 0),
+    actual: rows.reduce((s, r) => s + r.actual_cents, 0),
+  }
+}
+
+type SummaryTab = 'summary' | 'expenses'
+const SUMMARY_TABS: { value: SummaryTab; label: string }[] = [
+  { value: 'summary', label: 'Summary' },
+  { value: 'expenses', label: 'Expenses' },
+]
+
+/** A bar that fills as actual approaches planned; over plan fills completely. */
+function ProgressRow({ label, actual, planned, kind }: { label: string; actual: number; planned: number; kind: 'income' | 'expenses' | Bucket }) {
+  const share = planned > 0 ? Math.min(1, actual / planned) : actual > 0 ? 1 : 0
+  // Over plan is good news for income, a warning for spending.
+  const over = planned > 0 && actual > planned
+  return (
+    <div className="progress-row">
+      <div className="progress-text">
+        <span>{label}</span>
+        <span className="progress-amounts">
+          <strong>{formatMoney(actual)}</strong> <span className="muted">of {formatMoney(planned)}</span>
+        </span>
+      </div>
+      <WithToday block>
+        <div
+          className="progress-track"
+          role="progressbar"
+          aria-label={`${label}: ${formatMoney(actual)} of ${formatMoney(planned)}`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(share * 100)}
+        >
+          <span className={`progress-fill ${kind}${over && kind !== 'income' ? ' over' : ''}`} style={{ width: `${share * 100}%` }} />
         </div>
-      )}
+      </WithToday>
+      {over && <span className={`progress-note ${kind === 'income' ? 'positive' : 'negative'}`}>{formatMoney(actual - planned)} over plan</span>}
+      {planned === 0 && <span className="progress-note muted">Nothing planned</span>}
+    </div>
+  )
+}
 
-      {!d ? (
-        <p className="empty">Loading…</p>
+/** Box beside the budget: what's left to budget, then income or bucket progress. */
+function BudgetSummary({ data, months }: { data: Budget; months: number }) {
+  const [tab, setTab] = useState<SummaryTab>('summary')
+  const plannedIncome = data.income.reduce((s, r) => s + (r.planned_monthly_cents ?? 0) * months, 0)
+  const actualIncome = data.income.reduce((s, r) => s + r.actual_cents, 0)
+  const buckets = BUCKETS.map((b) => ({ ...b, ...bucketTotals(data, months, b.key) }))
+  const plannedExpenses = buckets.reduce((s, b) => s + b.planned, 0)
+  const actualExpenses = buckets.reduce((s, b) => s + b.actual, 0)
+  const left = plannedIncome - plannedExpenses
+  const tone = left > 0 ? 'positive' : left < 0 ? 'negative' : 'zero'
+  return (
+    <aside className="panel budget-summary" aria-label="Budget summary">
+      <div className={`left-to-budget ${tone}`}>
+        <span className="left-label">{left < 0 ? 'Over budget' : 'Left to budget'}</span>
+        <span className="left-amount">{formatMoney(Math.abs(left))}</span>
+        <span className="left-detail">
+          {formatMoney(plannedIncome)} planned income − {formatMoney(plannedExpenses)} planned expenses
+        </span>
+      </div>
+      <Segmented label="Summary view" options={SUMMARY_TABS} value={tab} onChange={setTab} />
+      {tab === 'summary' ? (
+        <>
+          <ProgressRow label="Income" actual={actualIncome} planned={plannedIncome} kind="income" />
+          <ProgressRow label="Expenses" actual={actualExpenses} planned={plannedExpenses} kind="expenses" />
+        </>
       ) : (
-        <div className={`budget-body${result.key !== key ? ' stale' : ''}`}>
-          <IncomeTable
-            data={d}
-            months={period.months}
-            onPlan={(source, label, cents) => run(() => api.setIncomePlan(source, label, cents))}
-            onAdded={() => void run(async () => {})}
-          />
-          <Buckets data={d} months={period.months} onSave={(p) => run(() => api.setBudgetPercentages(p))} />
-          <BucketLists data={d} months={period.months} onChange={run} />
-        </div>
+        buckets.map((b) => <ProgressRow key={b.key} label={`${b.emoji} ${b.label}`} actual={b.actual} planned={b.planned} kind={b.key} />)
       )}
-    </main>
+    </aside>
   )
 }
 
@@ -398,9 +521,11 @@ function Buckets({ data, months, onSave }: { data: Budget; months: number; onSav
                 </span>
               </div>
               <span className="muted-text small">{b.hint}</span>
-              <div className="bucket-bar" role="progressbar" aria-label={`${b.label} used`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)}>
-                <span className={remaining < 0 ? 'over' : ''} style={{ width: `${share * 100}%` }} />
-              </div>
+              <WithToday block>
+                <div className="bucket-bar" role="progressbar" aria-label={`${b.label} used`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)}>
+                  <span className={remaining < 0 ? 'over' : ''} style={{ width: `${share * 100}%` }} />
+                </div>
+              </WithToday>
               <dl className="ledger">
                 <div>
                   <dt>Target</dt>
@@ -456,6 +581,25 @@ function NewCategory({ bucket, onAdd }: { bucket: Bucket; onAdd: (name: string, 
         Cancel
       </button>
     </form>
+  )
+}
+
+/**
+ * Actual against planned for a budget row: grey when nothing has gone out (or nothing is planned),
+ * green while under 80%, yellow within 20% of the plan, red once over it.
+ */
+function PlanBar({ actual, planned, label }: { actual: number; planned: number | null; label: string }) {
+  const share = planned && planned > 0 ? actual / planned : null
+  const tone = share == null || actual <= 0 ? 'none' : share > 1 ? 'over' : share >= 0.8 ? 'near' : 'under'
+  const width = share == null || actual <= 0 ? 0 : Math.min(1, share) * 100
+  const text =
+    share == null ? `${label}: nothing planned` : `${label}: ${formatMoney(actual)} of ${formatMoney(planned!)} (${Math.round(share * 100)}%)${share > 1 ? ', over plan' : ''}`
+  return (
+    <WithToday>
+      <span className="plan-bar" role="img" aria-label={text} title={text}>
+        <span className={`plan-bar-fill ${tone}`} style={{ width: `${width}%` }} />
+      </span>
+    </WithToday>
   )
 }
 
@@ -585,6 +729,9 @@ function BucketLists({ data, months, onChange }: { data: Budget; months: number;
               </button>
             </span>
           </td>
+          <td>
+            <PlanBar actual={c.actual_cents} planned={planned} label={c.name} />
+          </td>
           <td className="num">
             <PlannedCell value={c.planned_monthly_cents} label={`Planned per month for ${c.name}`} onSave={(cents) => void plan(c.id, cents)} />
           </td>
@@ -599,6 +746,9 @@ function BucketLists({ data, months, onChange }: { data: Budget; months: number;
     <thead>
       <tr>
         <th>Category</th>
+        <th>
+          <span className="visually-hidden">Progress</span>
+        </th>
         <th className="num">Planned{perMonth}</th>
         <th className="num">Actual</th>
         <th className="num">Remaining</th>
@@ -659,6 +809,9 @@ function BucketLists({ data, months, onChange }: { data: Budget; months: number;
                               </span>
                             </span>
                           </td>
+                          <td>
+                            <PlanBar actual={r.actual_cents} planned={planned} label={r.label} />
+                          </td>
                           <td className="num">
                             <span className="computed-plan" title={interestNote(r)}>
                               {r.planned_monthly_cents != null ? formatMoney(r.planned_monthly_cents) : '—'}
@@ -674,6 +827,9 @@ function BucketLists({ data, months, onChange }: { data: Budget; months: number;
                   <tfoot>
                     <tr>
                       <th>Total</th>
+                      <th>
+                        <PlanBar actual={actualTotal} planned={anyPlanned ? plannedTotal : null} label={`${b.label} total`} />
+                      </th>
                       <th className="num">{anyPlanned ? formatMoney(plannedTotal) : '—'}</th>
                       <th className="num">{formatMoney(actualTotal)}</th>
                       {anyPlanned ? (

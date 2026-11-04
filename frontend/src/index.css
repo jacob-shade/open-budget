@@ -30,6 +30,8 @@
   /* Accounts summary segments: fixed per account type. Validated as two categorical sets. */
   --seg-cash: #1f8f63; --seg-investments: #a8730a; --seg-other: #3a6fb8;
   --seg-credit: #6d5bd0; --seg-loans: #c2410c;
+  /* Budget rows within 20% of their plan. */
+  --plan-near: #d4940f; --plan-over: #c62828;
   color-scheme: light;
 
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
@@ -62,7 +64,7 @@
     --chart-previous: #b8832a;
     --chart-gold: #f2b544;
     --chart-neutral: #8fa59b;
-    --seg-cash: #33a978; --seg-investments: #b8832a; --seg-other: #5584c4; --seg-credit: #7a68d0; --seg-loans: #cc5f22;
+    --seg-cash: #33a978; --seg-investments: #b8832a; --seg-other: #5584c4; --seg-credit: #7a68d0; --seg-loans: #cc5f22; --plan-near: #f2b544; --plan-over: #ef5350;
     color-scheme: dark;
   }
 }
@@ -86,7 +88,7 @@
   --chart-previous: #b8832a;
   --chart-gold: #f2b544;
   --chart-neutral: #8fa59b;
-  --seg-cash: #33a978; --seg-investments: #b8832a; --seg-other: #5584c4; --seg-credit: #7a68d0; --seg-loans: #cc5f22;
+  --seg-cash: #33a978; --seg-investments: #b8832a; --seg-other: #5584c4; --seg-credit: #7a68d0; --seg-loans: #cc5f22; --plan-near: #f2b544; --plan-over: #ef5350;
   color-scheme: dark;
 }
 
@@ -668,6 +670,33 @@ td .muted { display: block; }
 
 /* ---------- budget ---------- */
 .budget-page, .budget-body { display: flex; flex-direction: column; gap: 16px; }
+.budget-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+.budget-layout > .budget-summary { position: sticky; top: 16px; }
+@container (max-width: 900px) {
+  .budget-layout { grid-template-columns: minmax(0, 1fr); }
+  .budget-layout > .budget-summary { position: static; order: -1; }
+}
+.budget-summary { display: flex; flex-direction: column; gap: 14px; }
+.budget-summary .segmented { align-self: stretch; display: flex; }
+.budget-summary .segmented-option { flex: 1; }
+.left-to-budget { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 10px; text-align: center; }
+.left-to-budget.positive { background: color-mix(in srgb, var(--positive) 14%, var(--surface)); color: var(--positive); }
+.left-to-budget.negative { background: color-mix(in srgb, var(--negative) 14%, var(--surface)); color: var(--negative); }
+.left-to-budget.zero { background: var(--hover); color: var(--muted); }
+.left-label { font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.left-amount { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.left-detail { font-size: 0.75rem; color: var(--muted); }
+.progress-row { display: flex; flex-direction: column; gap: 6px; }
+.progress-text { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 0.9rem; }
+.progress-amounts { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.progress-amounts .muted { display: inline; }
+.progress-track { height: 10px; border-radius: 5px; background: var(--hover); overflow: hidden; }
+.progress-fill { display: block; height: 100%; border-radius: 5px; background: var(--positive); }
+.progress-fill.future { background: var(--chart-gold); }
+.progress-fill.over { background: var(--plan-over); }
+.progress-note { font-size: 0.75rem; }
+.progress-note.positive { color: var(--positive); }
+.progress-note.negative { color: var(--negative); }
 .budget-period { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .period-nav { display: flex; align-items: center; gap: 4px; }
 .period-nav .icon-button { font-size: 1.4rem; }
@@ -700,10 +729,17 @@ td .muted { display: block; }
 .bucket-category .muted { font-size: 0.75rem; padding-left: 26px; }
 .budget-table tfoot th { border-top: 2px solid var(--border); color: var(--text); font-weight: 600; font-size: 0.9rem; padding: 8px; }
 /* Same column widths in every bucket table, so Fundamentals / Future / Fun line up. */
-.budget-table { table-layout: fixed; min-width: 640px; }
-.budget-table th:nth-child(2), .budget-table td:nth-child(2) { width: 150px; }
-.budget-table th:nth-child(3), .budget-table td:nth-child(3) { width: 130px; }
-.budget-table th:nth-child(4), .budget-table td:nth-child(4) { width: 140px; }
+.budget-table { table-layout: fixed; min-width: 760px; }
+.budget-table th:nth-child(2), .budget-table td:nth-child(2) { width: 130px; }
+.budget-table th:nth-child(3), .budget-table td:nth-child(3) { width: 150px; }
+.budget-table th:nth-child(4), .budget-table td:nth-child(4) { width: 130px; }
+.budget-table th:nth-child(5), .budget-table td:nth-child(5) { width: 140px; }
+/* Planned-vs-actual bar between Category and Planned. */
+.plan-bar { display: block; height: 8px; border-radius: 4px; background: var(--hover); overflow: hidden; }
+.plan-bar-fill { display: block; height: 100%; border-radius: 4px; }
+.plan-bar-fill.under { background: var(--positive); }
+.plan-bar-fill.near { background: var(--plan-near); }
+.plan-bar-fill.over { background: var(--plan-over); }
 .budget-table .select { font-size: 0.8rem; padding: 3px 6px; }
 .budget-table td.negative, .budget-table th.negative { color: var(--negative); }
 .muted-cell { color: var(--muted); }
@@ -730,6 +766,8 @@ td .muted { display: block; }
 .computed-plan { display: inline-block; padding: 5px 8px; border-bottom: 1px dashed var(--border); cursor: help; font-variant-numeric: tabular-nums; }
 /* Budget category rows: a settings cog appears on hover or keyboard focus. */
 .category-cell { display: flex; align-items: center; gap: 6px; }
+/* The settings cog sits at the right end of the Category column. */
+.budget-table .category-cell .cog-button { margin-left: auto; flex-shrink: 0; }
 .cog-button { opacity: 0; transition: opacity 0.12s; }
 .category-row-hover:hover .cog-button, .cog-button:focus-visible { opacity: 1; }
 @media (hover: none) { .cog-button { opacity: 1; } }
@@ -759,3 +797,10 @@ body.dragging-rows { user-select: none; cursor: grabbing; }
 .institution-total { font-weight: 600; font-variant-numeric: tabular-nums; }
 .account-summary.nested { margin: 6px 0 0 12px; padding-left: 12px; border-left: 2px solid var(--border); }
 .account-summary.nested li { padding: 6px 0; }
+
+/* Text for screen readers only. */
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* Today's point in the budget period, drawn across a progress bar. */
+.bar-wrap { position: relative; display: block; }
+.today-marker { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text); opacity: 0.7; pointer-events: none; }

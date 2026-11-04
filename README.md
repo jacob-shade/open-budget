@@ -124,6 +124,61 @@ Sandbox data is fake. To pull from your actual accounts:
    as `PLAID_REDIRECT_URI`, e.g. `https://your-host/oauth`. Plaid requires HTTPS in production.
    The app already handles the `/oauth` return path.
 
+## Access it from anywhere (Cloudflare Tunnel)
+
+To open the app from any browser, with no VPN, run a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+on the machine that hosts it. `cloudflared` makes an outgoing connection to Cloudflare, and Cloudflare
+serves your domain from it. That means:
+
+- no router ports to open
+- your home IP stays hidden
+- Cloudflare handles HTTPS (TLS 1.2+)
+- it's free apart from the domain
+
+The app stays on `127.0.0.1:3000`, so the tunnel is the only way in from outside the machine.
+(Tailscale is a VPN, so every device would need it installed. Tailscale Funnel can expose a site,
+but only on a `*.ts.net` address.)
+
+1. **Domain.** Add a domain to Cloudflare. Buy one there at cost, or point an existing domain's
+   nameservers to Cloudflare. These steps use `budget.example.com`.
+2. **Tunnel.** Install [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
+   on the host itself, not in Docker, so it can reach the loopback port. Then run:
+
+   ```sh
+   cloudflared tunnel login
+   cloudflared tunnel create open-budget        # prints the tunnel ID and writes its credentials file
+   cloudflared tunnel route dns open-budget budget.example.com
+   ```
+
+   Create `~/.cloudflared/config.yml`:
+
+   ```yaml
+   tunnel: <tunnel ID>
+   credentials-file: /home/<you>/.cloudflared/<tunnel ID>.json
+   ingress:
+     - hostname: budget.example.com
+       service: http://localhost:3000
+     - service: http_status:404
+   ```
+
+   Test it with `cloudflared tunnel run open-budget`. Then install it as a service so it starts on
+   boot: `sudo cloudflared --config ~/.cloudflared/config.yml service install`.
+3. **App.** In `backend/.env`, set `PUBLIC_URL=https://budget.example.com`, then run
+   `docker compose up -d`. The app builds the Google sign-in return address from `PUBLIC_URL`, and an
+   `https` URL marks the session cookie HTTPS-only.
+4. **Google.** In the OAuth client (see [Google sign-in](#google-sign-in)), add
+   `https://budget.example.com/api/auth/google/callback` under **Authorized redirect URIs**.
+5. **Plaid.** In the Plaid Dashboard, enter `https://budget.example.com` as the **Application URL**.
+   Some institutions (e.g. Fidelity) need it before you can register with them. For OAuth banks, set
+   `PLAID_REDIRECT_URI=https://budget.example.com/oauth` and add the same URI in the dashboard.
+6. **Optional: Cloudflare Access.** In Cloudflare Zero Trust, add a self-hosted Access application for
+   `budget.example.com` with a policy that allows only your email. Cloudflare then asks for an email
+   code or Google sign-in before any request reaches your machine, so bots and scanners never touch
+   the app. The app's own Google sign-in, `ALLOWED_EMAILS` and authenticator code still apply.
+
+Keep the host's OS updated. Keep `DATABASE_KEY` and a copy of the database backup somewhere other than
+the host: without the key, the encrypted database can't be read.
+
 ## Security
 
 - **Sign-in:** Google OpenID Connect (authorization code + PKCE, state and nonce checked), restricted
