@@ -1,22 +1,32 @@
 :root {
-  /* Light theme: off-white cream. */
+  /* Brand (from the logo): dark green is the main colour; mint and gold are secondary; cream is the
+     light background. Light theme: cream with dark green. */
+  --brand-green: #0e3b2e;
+  --brand-mint: #5fd3a1;
+  --brand-gold: #f2b544;
+  --brand-cream: #f4efe3;
+
   --bg: #f4eee2;
   --surface: #fbf7ef;
-  --text: #2b2620;
-  --muted: #6e6354;
-  --border: #e4dac8;
-  --accent: #ff6b3d;
-  --accent-text: #ffffff;
-  --positive: #127a4b;
+  --text: #1f2b25;
+  --muted: #5d6a61;
+  --border: #e2dac8;
+  --accent: #0e3b2e;
+  --accent-text: #f4efe3;
+  --positive: #137450;
   --negative: #b23a0a;
   --danger: #a8181a;
-  --hover: #efe7d8;
-  --selected: #fbe3d4;
+  --hover: #ece5d6;
+  --selected: #dcefe5;
   --error-bg: #f7e0d8;
-  --notice-bg: #e3ecd8;
-  --shadow: rgba(60, 45, 20, 0.14);
-  --chart-current: #d9541f;
-  --chart-previous: #6e6354;
+  --notice-bg: #dff1e7;
+  --shadow: rgba(14, 59, 46, 0.14);
+  /* Charts: this period green, the comparison gold (validated for colour-blind separation). */
+  --chart-current: #1f8f63;
+  --chart-previous: #a8730a;
+  /* Highlights such as "Saved", and a neutral for spending flows. */
+  --chart-gold: #a8730a;
+  --chart-neutral: #8a8173;
   color-scheme: light;
 
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
@@ -26,44 +36,52 @@
   background: var(--bg);
 }
 
-/* Dark theme: when chosen explicitly, or when following a dark system setting.
-   <html data-theme="light|dark"> is set by the theme picker; no attribute = follow the system. */
+/* Dark theme (deep green, mint as the main colour): when chosen explicitly, or when following a dark
+   system setting. <html data-theme="light|dark"> is set by the theme picker; no attribute = follow the system. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --bg: #11141a;
-    --surface: #1a1f27;
-    --text: #e6e9ef;
-    --muted: #9aa3b2;
-    --border: #2a313c;
-    --positive: #4ade80;
+    --bg: #0b1d17;
+    --surface: #10271f;
+    --text: #e8efe9;
+    --muted: #9db3a8;
+    --border: #1f3a30;
+    --accent: #5fd3a1;
+    --accent-text: #0e3b2e;
+    --positive: #5fd3a1;
     --negative: #fb923c;
     --danger: #f87171;
-    --hover: #222833;
-    --selected: #3a2419;
+    --hover: #163028;
+    --selected: #183f31;
     --error-bg: #3b1a1a;
-    --notice-bg: #15301f;
+    --notice-bg: #15332a;
     --shadow: rgba(0, 0, 0, 0.45);
-    --chart-current: #f25f2c;
-    --chart-previous: #8790a0;
+    --chart-current: #33a978;
+    --chart-previous: #b8832a;
+    --chart-gold: #f2b544;
+    --chart-neutral: #8fa59b;
     color-scheme: dark;
   }
 }
 :root[data-theme='dark'] {
-  --bg: #11141a;
-  --surface: #1a1f27;
-  --text: #e6e9ef;
-  --muted: #9aa3b2;
-  --border: #2a313c;
-  --positive: #4ade80;
+  --bg: #0b1d17;
+  --surface: #10271f;
+  --text: #e8efe9;
+  --muted: #9db3a8;
+  --border: #1f3a30;
+  --accent: #5fd3a1;
+  --accent-text: #0e3b2e;
+  --positive: #5fd3a1;
   --negative: #fb923c;
   --danger: #f87171;
-  --hover: #222833;
-  --selected: #3a2419;
+  --hover: #163028;
+  --selected: #183f31;
   --error-bg: #3b1a1a;
-  --notice-bg: #15301f;
+  --notice-bg: #15332a;
   --shadow: rgba(0, 0, 0, 0.45);
-  --chart-current: #f25f2c;
-  --chart-previous: #8790a0;
+  --chart-current: #33a978;
+  --chart-previous: #b8832a;
+  --chart-gold: #f2b544;
+  --chart-neutral: #8fa59b;
   color-scheme: dark;
 }
 
@@ -132,7 +150,8 @@ table { width: 100%; border-collapse: collapse; }
 th { text-align: left; color: var(--muted); font-weight: 500; font-size: 0.8rem; padding: 6px 8px; border-bottom: 1px solid var(--border); }
 td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 td.muted { display: table-cell; }
-tr.pending td { opacity: 0.7; }
+/* Dim pending rows piece by piece: opacity on the cell would also fade the category dropdown inside it. */
+tr.pending .merchant, tr.pending td.num, tr.pending td.muted, tr.pending .category-chip, tr.pending .category-label { opacity: 0.7; }
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .nowrap { white-space: nowrap; }
 
@@ -164,7 +183,7 @@ tr.pending td { opacity: 0.7; }
 .recovery-codes { columns: 2; margin: 0; padding-left: 1.6em; font-family: ui-monospace, Consolas, monospace; font-size: 1rem; line-height: 1.9; }
 .auth-actions { display: flex; gap: 8px; }
 .checkbox { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
-.logo { font-size: 0.95em; margin-right: 2px; }
+.logo { width: 24px; height: 24px; border-radius: 6px; flex-shrink: 0; display: block; }
 
 /* ---------- profile menu ---------- */
 .user-menu { position: relative; }
@@ -207,7 +226,7 @@ tr.pending td { opacity: 0.7; }
 .theme-option:hover { color: var(--text); }
 .theme-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .theme-option.selected { background: var(--accent); color: var(--accent-text); font-weight: 600; }
-.home-link { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; }
+.home-link { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; border-radius: 6px; }
 .home-link:hover { opacity: 0.8; }
 .home-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -254,7 +273,7 @@ tr.pending td { opacity: 0.7; }
   .sidebar.collapsed:has(:focus-visible) { width: 232px; box-shadow: 8px 0 24px var(--shadow); }
   .sidebar.collapsed .sidebar-label,
   .sidebar.collapsed .collapse-toggle { transition: opacity 0.25s ease; }
-  /* Rail (collapsed and not peeking): labels and the toggle fade out; the page icons and 💵 remain. */
+  /* Rail (collapsed and not peeking): labels and the toggle fade out; the page icons and the logo remain. */
   .sidebar.collapsed:not(:hover):not(:has(:focus-visible)) .sidebar-label,
   .sidebar.collapsed:not(:hover):not(:has(:focus-visible)) .collapse-toggle { opacity: 0; pointer-events: none; }
 }
@@ -288,18 +307,18 @@ tr.pending td { opacity: 0.7; }
 /* ---------- overview: spending chart, investments, goals ---------- */
 /* Overview: one grid for both columns, so boxes on the left and right share row edges.
    Spending spans the Net worth row and the top of Accounts; Accounts then runs down beside
-   Investments/Goals and all three stretch to end level; Business profit spans the full width below. */
+   Business profit and Investments/Goals, and the pair stretches so all end level. */
 .overview-grid {
   display: grid; gap: 16px; align-items: stretch;
   grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
-  /* The flexible third row takes any extra height from a long Accounts list, so it lands in
-     Investments/Goals rather than as blank space inside Spending. */
-  grid-template-rows: auto auto 1fr auto;
+  /* The flexible last row takes any extra height from a long Accounts list, so it lands in
+     Investments/Goals rather than as blank space inside Spending or Business profit. */
+  grid-template-rows: auto auto auto 1fr;
   grid-template-areas:
     "networth spending"
     "accounts spending"
-    "accounts pair"
-    "business business";
+    "accounts business"
+    "accounts pair";
 }
 .area-networth { grid-area: networth; }
 .area-accounts { grid-area: accounts; }
@@ -307,7 +326,7 @@ tr.pending td { opacity: 0.7; }
 .area-pair { grid-area: pair; }
 .overview-grid > .business { grid-area: business; }
 @container (max-width: 780px) {
-  .overview-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "networth" "accounts" "spending" "pair" "business"; }
+  .overview-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "networth" "accounts" "spending" "business" "pair"; }
 }
 .overview-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: stretch; }
 @container (max-width: 560px) { .overview-pair { grid-template-columns: minmax(0, 1fr); } }
@@ -431,7 +450,9 @@ tr.pending td { opacity: 0.7; }
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; border: 0; margin: 0; padding: 0; }
 .field-label { font-size: 0.8rem; color: var(--muted); }
 .field-hint { font-size: 0.75rem; color: var(--muted); }
-.field-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.field-row { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+/* Trade rows end with a remove button that should sit level with the inputs. */
+.field-row.incoming { align-items: flex-end; }
 .field-row > .field { min-width: 140px; }
 .input {
   font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border);
@@ -621,11 +642,11 @@ td .muted { display: block; }
 .sankey-node { fill: var(--muted); }
 .sankey-node.income { fill: var(--positive); }
 .sankey-node.total { fill: var(--text); }
-.sankey-node.saved { fill: var(--chart-current); }
+.sankey-node.saved { fill: var(--chart-gold); }
 .sankey-node.deficit { fill: var(--negative); }
-.sankey-link { fill: var(--chart-previous); fill-opacity: 0.28; transition: fill-opacity 0.12s; cursor: default; outline: none; }
+.sankey-link { fill: var(--chart-neutral); fill-opacity: 0.28; transition: fill-opacity 0.12s; cursor: default; outline: none; }
 .sankey-link.income { fill: var(--positive); fill-opacity: 0.25; }
-.sankey-link.saved { fill: var(--chart-current); fill-opacity: 0.32; }
+.sankey-link.saved { fill: var(--chart-gold); fill-opacity: 0.35; }
 .sankey-link.deficit { fill: var(--negative); fill-opacity: 0.25; }
 .sankey-link.dim { fill-opacity: 0.1; }
 .sankey-link.active, .sankey-link:focus-visible { fill-opacity: 0.55; }
@@ -645,6 +666,7 @@ td .muted { display: block; }
 .planned-input { width: 120px; text-align: right; padding: 5px 8px; }
 .budget-income tfoot th { border-top: 2px solid var(--border); color: var(--text); font-weight: 600; font-size: 0.9rem; padding: 8px; }
 .budget-income td.empty { text-align: center; }
+.budget-income .row-actions { width: 1%; padding: 0 4px; }
 .add-income { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .add-income .input:first-child { flex: 1; min-width: 180px; }
 .add-income .input.money { width: 130px; }
@@ -660,7 +682,7 @@ td .muted { display: block; }
 .icon-button.small { width: 28px; height: 28px; font-size: 1.1rem; }
 .bucket-bar { height: 10px; border-radius: 5px; background: var(--hover); overflow: hidden; }
 .bucket-bar span { display: block; height: 100%; border-radius: 5px; background: var(--positive); }
-.bucket-card.future .bucket-bar span { background: var(--chart-current); }
+.bucket-card.future .bucket-bar span { background: var(--chart-gold); }
 .bucket-bar span.over { background: var(--negative); }
 .new-category { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
 .new-category .input { flex: 1; min-width: 120px; }
@@ -681,3 +703,39 @@ td .muted { display: block; }
 .muted-cell { color: var(--muted); }
 .over-plan { color: var(--negative); font-weight: 600; }
 .bucket-list .heading-with-total > span:first-child { display: inline-flex; gap: 6px; }
+
+/* ---------- hidden net worth ---------- */
+/* A label or heading with the eye button beside it, centred on the text line. */
+.with-toggle { display: inline-flex; align-items: center; gap: 4px; line-height: 1.2; }
+.net-worth .label.with-toggle { display: flex; }
+.with-toggle .eye-button { width: 22px; height: 22px; margin: -2px 0; }
+.eye-button {
+  display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0;
+  border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer;
+}
+.eye-button:hover { background: var(--hover); color: var(--text); }
+.eye-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.eye-button[aria-pressed='true'] { color: var(--accent); }
+
+/* ---------- manual accounts ---------- */
+.accounts-toolbar { display: flex; justify-content: flex-end; margin-bottom: -4px; }
+.account-balance { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.manual-actions { display: flex; gap: 6px; }
+.computed-plan { display: inline-block; padding: 5px 8px; border-bottom: 1px dashed var(--border); cursor: help; font-variant-numeric: tabular-nums; }
+/* Budget category rows: a settings cog appears on hover or keyboard focus. */
+.category-cell { display: flex; align-items: center; gap: 6px; }
+.cog-button { opacity: 0; transition: opacity 0.12s; }
+.category-row-hover:hover .cog-button, .cog-button:focus-visible { opacity: 1; }
+@media (hover: none) { .cog-button { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .cog-button { transition: none; } }
+.category-settings-name { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; }
+.category-settings-name .field { min-width: 0; }
+
+/* Accounts grouped by institution (e.g. several loans with one lender) with a subtotal. */
+.account-summary li.institution-group { display: block; padding: 8px 0; }
+.institution-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.institution-head .account-name { font-weight: 600; }
+.institution-head .muted { display: inline; margin-left: 8px; }
+.institution-total { font-weight: 600; font-variant-numeric: tabular-nums; }
+.account-summary.nested { margin: 6px 0 0 12px; padding-left: 12px; border-left: 2px solid var(--border); }
+.account-summary.nested li { padding: 6px 0; }

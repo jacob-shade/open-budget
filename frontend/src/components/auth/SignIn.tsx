@@ -7,9 +7,7 @@ export function SignIn({ error }: Props) {
     <div className="auth-card">
       <h1>
         <a className="home-link" href="/">
-          <span className="logo" aria-hidden="true">
-            💵
-          </span>{' '}
+          <img className="logo" src="/logo-128.png" alt="" width={24} height={24} />
           Open Budget
         </a>
       </h1>

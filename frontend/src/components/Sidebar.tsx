@@ -20,9 +20,7 @@ export function Sidebar({ user, path, collapsed, onToggleCollapsed, mobileOpen, 
     <aside className={`sidebar${collapsed ? ' collapsed' : ''}${mobileOpen ? ' open' : ''}`} aria-label="Main menu">
       <div className="sidebar-top">
         <Link className="home-link sidebar-logo" href="/" onClick={onCloseMobile} title="Open Budget">
-          <span className="logo" aria-hidden="true">
-            💵
-          </span>
+          <img className="logo" src="/logo-128.png" alt="" width={24} height={24} />
           <span className="sidebar-label">Open Budget</span>
         </Link>
         <button

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useBackdropClose } from '../lib/useBackdropClose'
 
 interface Props {
   title: string
@@ -16,6 +17,7 @@ interface Props {
 /** Modal form built on <dialog>: focus is trapped, Escape and the backdrop close it. */
 export function Dialog({ title, submitLabel, onClose, onSubmit, children, wide, canSubmit = true }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
+  const backdrop = useBackdropClose(ref, onClose)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -43,9 +45,7 @@ export function Dialog({ title, submitLabel, onClose, onSubmit, children, wide, 
       ref={ref}
       className={`dialog${wide ? ' wide' : ''}`}
       onClose={onClose}
-      onClick={(e) => {
-        if (e.target === ref.current) onClose()
-      }}
+      {...backdrop}
       aria-labelledby="dialog-title"
     >
       <form onSubmit={submit}>

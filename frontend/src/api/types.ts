@@ -24,7 +24,28 @@ export interface Account {
   is_liability: boolean
   /** The business this account belongs to; its money is left out of personal spending. */
   business_id: number | null
+  /** Entered by hand rather than linked through Plaid. */
+  is_manual: boolean
+  /** Interest rate you entered, in basis points (3.50% = 350): APY for savings, APR for debts. */
+  apy_bps: number | null
+  /** Minimum monthly payment (manual loans and credit cards). */
+  min_payment_cents: number | null
   updated_at: string
+}
+
+export type ManualAccountType = 'depository' | 'credit' | 'loan' | 'investment' | 'other'
+
+export interface ManualAccountInput {
+  name?: string
+  account_type?: ManualAccountType
+  account_subtype?: string
+  institution_name?: string
+  /** For credit cards and loans, the amount owed. */
+  balance_cents?: number
+  /** Basis points: APY for savings, APR for loans and cards. null clears it. */
+  apy_bps?: number | null
+  /** Loans and credit cards only. null clears it. */
+  min_payment_cents?: number | null
 }
 
 export interface Transaction {
@@ -75,7 +96,16 @@ export interface BudgetPercentages {
 
 export interface Budget {
   percentages: BudgetPercentages
-  income: { label: string; source: 'income' | 'payout'; planned_monthly_cents: number | null; actual_cents: number }[]
+  /** source "interest": planned is calculated from the account's balance before the period × APY ÷ 12. */
+  income: {
+    label: string
+    source: 'income' | 'payout' | 'interest'
+    planned_monthly_cents: number | null
+    actual_cents: number
+    account_id: string | null
+    apy_bps: number | null
+    balance_cents: number | null
+  }[]
   /** Expense and transfer categories with money out in the period. */
   categories: { id: number; name: string; emoji: string; kind: CategoryKind; bucket: Bucket | null; planned_monthly_cents: number | null; actual_cents: number }[]
 }
@@ -136,6 +166,10 @@ export interface NetWorthPoint {
   /** YYYY-MM-DD */
   date: string
   net_worth_cents: number
+  /** What you own at the end of the day. */
+  assets_cents: number
+  /** What you owe at the end of the day (positive). */
+  debts_cents: number
 }
 
 export type BusinessKind = 'collectibles' | 'general'
@@ -276,7 +310,7 @@ export interface TransactionSummary {
 
 export interface CashFlow {
   /** Largest first. source "payout" = money paid to you from a business. */
-  income: { label: string; source: 'income' | 'payout'; business_id: number | null; cents: number }[]
+  income: { label: string; source: 'income' | 'payout' | 'interest'; business_id: number | null; account_id: string | null; cents: number }[]
   /** Largest first; Expense categories only. */
   spending: { category_id: number; name: string; emoji: string; cents: number }[]
   total_income_cents: number

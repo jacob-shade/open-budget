@@ -32,12 +32,17 @@ pub fn router(state: AppState) -> Router {
     let protected = Router::new()
         .route("/api/plaid/link-token", post(plaid::create_link_token))
         .route("/api/plaid/exchange", post(plaid::exchange_public_token))
+        .route("/api/plaid/link-event", post(plaid::link_event))
         .route("/api/items", get(items::index))
         .route("/api/items/{id}", delete(items::destroy))
         .route("/api/items/{id}/sync", post(items::sync))
         .route("/api/sync", post(items::sync_all))
         .route("/api/accounts", get(accounts::index))
         .route("/api/accounts/{id}", patch(accounts::update))
+        .route("/api/accounts/{id}/apy", put(accounts::set_apy))
+        .route("/api/accounts/{id}/name", put(accounts::rename))
+        .route("/api/manual-accounts", post(accounts::create_manual))
+        .route("/api/manual-accounts/{id}", patch(accounts::update_manual).delete(accounts::delete_manual))
         .route("/api/net-worth/history", get(accounts::net_worth_history))
         .route("/api/business-summary", get(business::summary_all))
         .route("/api/businesses", get(business::index).post(business::create))
@@ -249,5 +254,27 @@ mod tests {
         assert_eq!(call(&app, c, "DELETE", &format!("/api/categories/{snacks}"), None).await.0, StatusCode::NO_CONTENT);
         let t = first(call(&app, c, "GET", "/api/transactions", None).await.1);
         assert_eq!((t["category_id"].as_i64(), t["category_overridden"].as_bool()), (Some(food), Some(false)));
+    }
+
+    #[tokio::test]
+    async fn net_worth_history_splits_assets_and_debts() {
+        let (app, cookie, pool) = app().await;
+        let c = Some(cookie.as_str());
+        sqlx::query("INSERT INTO items (id, access_token) VALUES ('i', 'access-production-1')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO accounts (id, item_id, name, account_type, current_balance_cents) VALUES ('chk', 'i', 'Checking', 'depository', 100000), ('cc', 'i', 'Card', 'credit', 30000)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        // Nov 2: paid $50 on the card from checking. Nov 3: spent $20 on the card.
+        sqlx::query("INSERT INTO transactions (id, account_id, amount_cents, date, name, pending) VALUES
+            ('p1', 'chk', -5000, '2026-11-02', 'Card payment', 0), ('p2', 'cc', 5000, '2026-11-02', 'Payment', 0), ('s1', 'cc', -2000, '2026-11-03', 'Lunch', 0)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let (s, v) = call(&app, c, "GET", "/api/net-worth/history?start=2026-11-01&end=2026-11-03", None).await;
+        assert_eq!(s, StatusCode::OK);
+        let pts: Vec<(i64, i64, i64)> = v.as_array().unwrap().iter().map(|p| (p["assets_cents"].as_i64().unwrap(), p["debts_cents"].as_i64().unwrap(), p["net_worth_cents"].as_i64().unwrap())).collect();
+        // Nov 1: before both, checking $1,050, card owed $330. Nov 2: $1,000 / $280. Nov 3: $1,000 / $300.
+        assert_eq!(pts, vec![(105000, 33000, 72000), (100000, 28000, 72000), (100000, 30000, 70000)]);
     }
 }

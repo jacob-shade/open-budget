@@ -4,7 +4,7 @@ use axum::{
 };
 use std::collections::BTreeMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     AppState,
@@ -69,25 +69,94 @@ pub async fn net_worth_history(
     }
     let start = start.max(end - time::Duration::days(net_worth::MAX_DAYS));
 
-    let now_cents: i64 = Account::all(&state.pool)
-        .await?
-        .iter()
-        .map(|a| {
-            let b = a.current_balance_cents.unwrap_or(0);
-            if matches!(a.account_type.as_str(), "credit" | "loan") { -b } else { b }
-        })
-        .sum();
-    let sums: BTreeMap<String, i64> =
-        sqlx::query_as::<_, (String, i64)>("SELECT date, SUM(amount_cents) FROM transactions WHERE date > ? GROUP BY date")
-            .bind(net_worth::format_date(start))
-            .fetch_all(&state.pool)
-            .await?
-            .into_iter()
-            .collect();
+    // Assets and debts are reconstructed separately (same method), so they can be shown side by side.
+    // Debts are signed negative while reconstructing, like their effect on net worth.
+    let accounts = Account::all(&state.pool).await?;
+    let is_debt = |t: &str| matches!(t, "credit" | "loan");
+    let now_assets: i64 = accounts.iter().filter(|a| !is_debt(&a.account_type)).map(|a| a.current_balance_cents.unwrap_or(0)).sum();
+    let now_debts: i64 = -accounts.iter().filter(|a| is_debt(&a.account_type)).map(|a| a.current_balance_cents.unwrap_or(0)).sum::<i64>();
+    let rows: Vec<(String, i64, i64)> = sqlx::query_as(
+        "SELECT t.date,
+                SUM(CASE WHEN a.account_type IN ('credit', 'loan') THEN 0 ELSE t.amount_cents END),
+                SUM(CASE WHEN a.account_type IN ('credit', 'loan') THEN t.amount_cents ELSE 0 END)
+         FROM transactions t JOIN accounts a ON a.id = t.account_id WHERE t.date > ? GROUP BY t.date",
+    )
+    .bind(net_worth::format_date(start))
+    .fetch_all(&state.pool)
+    .await?;
+    let asset_sums: BTreeMap<String, i64> = rows.iter().map(|(d, a, _)| (d.clone(), *a)).collect();
+    let debt_sums: BTreeMap<String, i64> = rows.iter().map(|(d, _, l)| (d.clone(), *l)).collect();
 
-    let points = net_worth::reconstruct(now_cents, &sums, start, end)
+    let assets = net_worth::reconstruct(now_assets, &asset_sums, start, end);
+    let debts = net_worth::reconstruct(now_debts, &debt_sums, start, end);
+    let points = assets
         .into_iter()
-        .map(|(date, net_worth_cents)| NetWorthPointView { date, net_worth_cents })
+        .zip(debts)
+        .map(|((date, a), (_, d))| NetWorthPointView { date, net_worth_cents: a + d, assets_cents: a, debts_cents: -d })
         .collect();
     Ok(Json(points))
+}
+
+#[derive(Serialize)]
+pub struct CreatedAccount {
+    id: String,
+}
+
+/// Adds an account you track by hand.
+pub async fn create_manual(
+    State(state): State<AppState>,
+    Json(input): Json<crate::models::manual_account::ManualAccountInput>,
+) -> AppResult<Json<CreatedAccount>> {
+    Ok(Json(CreatedAccount { id: crate::models::manual_account::create(&state.pool, &input).await? }))
+}
+
+pub async fn update_manual(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(input): Json<crate::models::manual_account::ManualAccountInput>,
+) -> AppResult<axum::http::StatusCode> {
+    crate::models::manual_account::update(&state.pool, &id, &input).await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+pub async fn delete_manual(State(state): State<AppState>, Path(id): Path<String>) -> AppResult<axum::http::StatusCode> {
+    crate::models::manual_account::delete(&state.pool, &id).await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+pub struct SetApy {
+    /// Basis points (3.50% = 350); null clears it.
+    apy_bps: Option<i64>,
+}
+
+/// Sets the interest rate (APY) for an account; Plaid doesn't report savings rates.
+pub async fn set_apy(State(state): State<AppState>, Path(id): Path<String>, Json(body): Json<SetApy>) -> AppResult<axum::http::StatusCode> {
+    if body.apy_bps.is_some_and(|b| !(0..=10000).contains(&b)) {
+        return Err(AppError::BadRequest("APY must be between 0% and 100%"));
+    }
+    if !Account::set_apy(&state.pool, &id, body.apy_bps).await? {
+        return Err(AppError::NotFound);
+    }
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+pub struct Rename {
+    /// The name to show; null or empty goes back to the bank's name.
+    nickname: Option<String>,
+}
+
+/// Renames a linked account (the bank's name is kept and comes back if you clear this).
+pub async fn rename(State(state): State<AppState>, Path(id): Path<String>, Json(body): Json<Rename>) -> AppResult<axum::http::StatusCode> {
+    if id.starts_with(crate::models::account::MANUAL_PREFIX) {
+        return Err(AppError::BadRequest("rename manual accounts with Update"));
+    }
+    if body.nickname.as_deref().is_some_and(|n| n.trim().chars().count() > 100) {
+        return Err(AppError::BadRequest("names must be 100 characters or fewer"));
+    }
+    if !Account::set_nickname(&state.pool, &id, body.nickname.as_deref()).await? {
+        return Err(AppError::NotFound);
+    }
+    Ok(axum::http::StatusCode::NO_CONTENT)
 }

@@ -56,7 +56,7 @@ export function CashFlowPage({ refreshKey }: { refreshKey: unknown }) {
         d.income.map((i, k) => ({
           id: `${i.source}-${i.business_id ?? i.label}-${k}`,
           label: i.source === 'payout' ? `${i.label} payouts` : i.label,
-          emoji: i.source === 'payout' ? '💼' : undefined,
+          emoji: i.source === 'payout' ? '💼' : i.source === 'interest' ? '📈' : undefined,
           cents: i.cents,
           role: 'income' as const,
         })),
@@ -153,7 +153,7 @@ export function CashFlowPage({ refreshKey }: { refreshKey: unknown }) {
                   <tbody>
                     {d.income.map((i, k) => (
                       <tr key={k}>
-                        <td>{i.source === 'payout' ? `💼 ${i.label} payouts` : i.label}</td>
+                        <td>{i.source === 'payout' ? `💼 ${i.label} payouts` : i.source === 'interest' ? `📈 ${i.label}` : i.label}</td>
                         <td className="amount">{formatMoney(i.cents)}</td>
                       </tr>
                     ))}

@@ -83,3 +83,37 @@ pub async fn exchange_public_token(
     let item = Item::find(&state.pool, &item.id).await?.unwrap_or(item);
     Ok(Json(ExchangeView { item: item.into(), sync, sync_error }))
 }
+
+/// Diagnostics Plaid Link reports in the browser (no credentials: codes, ids, the institution).
+#[derive(Deserialize)]
+pub struct LinkEvent {
+    event: String,
+    error_code: Option<String>,
+    error_type: Option<String>,
+    error_message: Option<String>,
+    institution_id: Option<String>,
+    institution_name: Option<String>,
+    link_session_id: Option<String>,
+    request_id: Option<String>,
+    status: Option<String>,
+}
+
+/// Writes a Link error to the server log, so failures inside Plaid's window can be diagnosed
+/// (and looked up in the Plaid Dashboard by session or request id).
+pub async fn link_event(Json(e): Json<LinkEvent>) -> axum::http::StatusCode {
+    // Values come from the browser: cap their length and strip control characters before logging.
+    let clean = |v: &Option<String>| v.as_deref().map(|s| s.chars().filter(|c| !c.is_control()).take(300).collect::<String>()).unwrap_or_default();
+    tracing::warn!(
+        event = %clean(&Some(e.event)),
+        institution = %clean(&e.institution_name),
+        institution_id = %clean(&e.institution_id),
+        error_type = %clean(&e.error_type),
+        error_code = %clean(&e.error_code),
+        error_message = %clean(&e.error_message),
+        status = %clean(&e.status),
+        link_session_id = %clean(&e.link_session_id),
+        request_id = %clean(&e.request_id),
+        "plaid link problem"
+    );
+    axum::http::StatusCode::NO_CONTENT
+}

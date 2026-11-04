@@ -17,6 +17,7 @@ import type {
   Expense,
   ExpenseCategory,
   Item,
+  ManualAccountInput,
   MfaSetup,
   NetWorthPoint,
   NewItem,
@@ -120,6 +121,8 @@ export const api = {
   /** Put a transaction in a category; null goes back to the automatic one. */
   setTransactionCategory: (id: string, categoryId: number | null) =>
     request<void>('PATCH', `/transactions/${encodeURIComponent(id)}`, { category_id: categoryId }),
+  /** Sends Plaid Link error details (codes and ids only) to the server log for diagnosis. */
+  reportLinkEvent: (e: Record<string, string | null | undefined>) => request<void>('POST', '/plaid/link-event', e).catch(() => {}),
   categories: () => request<Category[]>('GET', '/categories'),
   createCategory: (c: { name: string; emoji: string; kind: CategoryKind; bucket?: Bucket | 'none' }) => request<Category>('POST', '/categories', c),
   updateCategory: (id: number, c: Partial<{ name: string; emoji: string; kind: CategoryKind; bucket: Bucket | 'none' }>) =>
@@ -135,6 +138,13 @@ export const api = {
   /** Estimated daily net worth up to `end`; `start` omitted = from the earliest transaction. */
   netWorthHistory: (start: string | null, end: string) =>
     request<NetWorthPoint[]>('GET', `/net-worth/history?${new URLSearchParams(start ? { start, end } : { end })}`),
+  /** Interest rate in basis points (3.50% = 350); null clears it. */
+  setAccountApy: (id: string, apyBps: number | null) => request<void>('PUT', `/accounts/${encodeURIComponent(id)}/apy`, { apy_bps: apyBps }),
+  /** Rename a linked account; null or empty goes back to the bank's name. */
+  renameAccount: (id: string, nickname: string | null) => request<void>('PUT', `/accounts/${encodeURIComponent(id)}/name`, { nickname }),
+  createManualAccount: (a: ManualAccountInput) => request<{ id: string }>('POST', '/manual-accounts', a),
+  updateManualAccount: (id: string, a: ManualAccountInput) => request<void>('PATCH', `/manual-accounts/${encodeURIComponent(id)}`, a),
+  deleteManualAccount: (id: string) => request<void>('DELETE', `/manual-accounts/${encodeURIComponent(id)}`),
   /** Link an account to a business, or null to make it personal. */
   setAccountBusiness: (id: string, businessId: number | null) =>
     request<void>('PATCH', `/accounts/${encodeURIComponent(id)}`, { business_id: businessId }),

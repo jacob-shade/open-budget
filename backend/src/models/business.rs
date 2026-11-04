@@ -260,6 +260,7 @@ pub async fn delete_business(db: &SqlitePool, id: i64) -> BResult<()> {
         sqlx::query(&format!("DELETE FROM {table} WHERE business_id = ?")).bind(id).execute(&mut *tx).await?;
     }
     sqlx::query("UPDATE accounts SET business_id = NULL WHERE business_id = ?").bind(id).execute(&mut *tx).await?;
+    sqlx::query("UPDATE manual_accounts SET business_id = NULL WHERE business_id = ?").bind(id).execute(&mut *tx).await?;
     let res = sqlx::query("DELETE FROM businesses WHERE id = ?").bind(id).execute(&mut *tx).await?;
     if res.rows_affected() == 0 {
         return Err(BusinessError::NotFound);
@@ -705,8 +706,10 @@ pub async fn summary(db: &SqlitePool, business_id: Option<i64>, start: &str, end
     let cash_expenses = scalar("SELECT COALESCE(SUM(amount_cents), 0) FROM business_expenses WHERE paid_via = 'cash' AND (?1 IS NULL OR business_id = ?1)").fetch_one(db).await?;
     let cash_payouts = scalar("SELECT COALESCE(SUM(amount_cents), 0) FROM business_payouts WHERE paid_via = 'cash' AND (?1 IS NULL OR business_id = ?1)").fetch_one(db).await?;
     let bank = scalar(
-        "SELECT COALESCE(SUM(CASE WHEN account_type IN ('credit', 'loan') THEN -COALESCE(current_balance_cents, 0) ELSE COALESCE(current_balance_cents, 0) END), 0)
-         FROM accounts WHERE business_id IS NOT NULL AND (?1 IS NULL OR business_id = ?1)",
+        "SELECT COALESCE(SUM(CASE WHEN account_type IN ('credit', 'loan') THEN -COALESCE(bal, 0) ELSE COALESCE(bal, 0) END), 0) FROM (
+            SELECT account_type, current_balance_cents AS bal, business_id FROM accounts
+            UNION ALL SELECT account_type, balance_cents, business_id FROM manual_accounts
+         ) WHERE business_id IS NOT NULL AND (?1 IS NULL OR business_id = ?1)",
     )
     .fetch_one(db)
     .await?;

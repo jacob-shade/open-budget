@@ -1,7 +1,6 @@
 # open-budget
 
-A self-hosted personal finance app (in the spirit of Monarch Money). It pulls accounts, balances and
-transactions from your banks through [Plaid](https://plaid.com).
+A self-hosted personal finance app. It pulls accounts, balances and transactions from your banks through [Plaid](https://plaid.com).
 
 - **Backend:** Rust ([Axum](https://github.com/tokio-rs/axum)) + SQLite ([SQLx](https://github.com/launchbadge/sqlx))
 - **Frontend:** React + TypeScript (Vite)

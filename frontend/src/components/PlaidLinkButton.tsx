@@ -72,10 +72,37 @@ export function PlaidLinkButton({ itemId, label = 'Connect a bank', className = 
   const { open, ready } = usePlaidLink({
     token,
     onSuccess,
-    onExit: (err) => {
+    // Errors inside Plaid's window never reach the server on their own; log their codes so they can be diagnosed.
+    onEvent: (eventName, m) => {
+      if (eventName !== 'ERROR') return
+      void api.reportLinkEvent({
+        event: eventName,
+        error_code: m.error_code,
+        error_type: m.error_type,
+        error_message: m.error_message,
+        institution_id: m.institution_id,
+        institution_name: m.institution_name,
+        link_session_id: m.link_session_id,
+        request_id: m.request_id,
+      })
+    },
+    onExit: (err, m) => {
       storeToken(null)
       setToken(null)
-      if (err) onError(err.display_message || err.error_message)
+      if (!err) return
+      void api.reportLinkEvent({
+        event: 'EXIT',
+        error_code: err.error_code,
+        error_type: err.error_type,
+        error_message: err.error_message,
+        institution_id: m.institution?.institution_id,
+        institution_name: m.institution?.name,
+        link_session_id: m.link_session_id,
+        request_id: m.request_id,
+        status: m.status,
+      })
+      const where = m.institution?.name ? `${m.institution.name}: ` : ''
+      onError(`${where}${err.display_message || err.error_message} (Plaid error ${err.error_code})`)
     },
     ...(isOAuthRedirect && !itemId ? { receivedRedirectUri: window.location.href } : {}),
   })

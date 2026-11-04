@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
+import { useBackdropClose } from '../lib/useBackdropClose'
 import type { Category, CategoryKind } from '../api/types'
 import { formatCategory } from '../format'
 import { Popover } from './Popover'
@@ -121,6 +122,7 @@ function CategoryRow({ category, onSaved, onDeleted }: { category: Category; onS
 /** Window for renaming categories, changing their emoji and type, and adding or deleting your own. */
 export function ManageCategories({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
   const ref = useRef<HTMLDialogElement>(null)
+  const backdrop = useBackdropClose(ref, onClose)
   const [categories, setCategories] = useState<Category[] | null>(null)
   const [version, setVersion] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -166,9 +168,7 @@ export function ManageCategories({ onClose, onChanged }: { onClose: () => void; 
       ref={ref}
       className="dialog wide"
       onClose={onClose}
-      onClick={(e) => {
-        if (e.target === ref.current) onClose()
-      }}
+      {...backdrop}
       aria-labelledby="categories-title"
     >
       <div className="dialog-inner">

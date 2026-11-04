@@ -3,12 +3,15 @@ import { formatMoney } from '../format'
 import { BusinessProfit } from '../components/BusinessProfit'
 import { Link } from '../components/Link'
 import { NetWorth } from '../components/NetWorth'
+import { NetWorthToggle } from '../components/NetWorthToggle'
+import { HIDDEN_AMOUNT, useAmountsShown } from '../lib/privacy'
 import { SpendingChart } from '../components/SpendingChart'
 
-/** Default page. A shared grid (see .overview-grid) so Accounts ends level with Investments and Goals. */
+/** Default page. A shared grid (see .overview-grid) so Accounts ends level with Investments and Goals, with Business profit between Spending and them. */
 export function OverviewPage({ data }: { data: FinanceData }) {
   const investments = data.accounts.filter((a) => a.type === 'investment')
   const investedCents = investments.reduce((s, a) => s + (a.current_balance_cents ?? 0), 0)
+  const [balancesShown, toggleBalances] = useAmountsShown()
 
   return (
     <main className="overview-grid">
@@ -17,7 +20,9 @@ export function OverviewPage({ data }: { data: FinanceData }) {
       </section>
       <section className="panel area-accounts">
         <div className="panel-header">
-          <h2>Accounts</h2>
+          <h2 className="with-toggle">
+            Accounts <NetWorthToggle shown={balancesShown} onToggle={toggleBalances} what="account balances" />
+          </h2>
           <Link className="button small" href="/accounts">
             Manage
           </Link>
@@ -35,7 +40,7 @@ export function OverviewPage({ data }: { data: FinanceData }) {
                     {a.mask ? ` ••${a.mask}` : ''}
                   </span>
                 </span>
-                <span className={a.is_liability ? 'negative' : ''}>{formatMoney(a.current_balance_cents, a.currency)}</span>
+                <span className={a.is_liability ? 'negative' : ''}>{balancesShown ? formatMoney(a.current_balance_cents, a.currency) : HIDDEN_AMOUNT}</span>
               </li>
             ))}
           </ul>
@@ -43,6 +48,7 @@ export function OverviewPage({ data }: { data: FinanceData }) {
       </section>
 
       <SpendingChart refreshKey={data.transactions} />
+      <BusinessProfit onError={data.setError} refreshKey={data.transactions} />
       <div className="overview-pair area-pair">
         <section className="panel">
           <div className="panel-header">
@@ -82,7 +88,6 @@ export function OverviewPage({ data }: { data: FinanceData }) {
           <p className="empty compact">No goals yet. Setting goals isn't built yet.</p>
         </section>
       </div>
-      <BusinessProfit onError={data.setError} refreshKey={data.transactions} />
     </main>
   )
 }

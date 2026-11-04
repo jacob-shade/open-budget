@@ -8,13 +8,20 @@ use sqlx::{FromRow, SqlitePool};
 
 use super::transaction::CATEGORY_JOIN;
 
+/// Interest paid into an account you set an APY for: money in, named or categorised as interest.
+pub const IS_INTEREST: &str = "(a.apy_bps IS NOT NULL AND a.account_type NOT IN ('credit', 'loan') AND t.amount_cents > 0
+    AND (t.category_detailed = 'INCOME_INTEREST_EARNED' OR LOWER(t.name) LIKE '%interest%'))";
+
 #[derive(Debug, Serialize, FromRow, PartialEq, Eq)]
 pub struct IncomeStream {
     /// Who paid you (merchant or transaction name), or the business name for payouts.
     pub label: String,
-    /// "income" for deposits into personal accounts, "payout" for business payouts.
+    /// "income" for deposits into personal accounts, "payout" for business payouts, "interest" for
+    /// interest on accounts you set an APY for.
     pub source: String,
     pub business_id: Option<i64>,
+    /// The account, for interest.
+    pub account_id: Option<String>,
     pub cents: i64,
 }
 
@@ -40,17 +47,24 @@ pub struct CashFlow {
 pub async fn cash_flow(db: &SqlitePool, start: &str, end: &str) -> sqlx::Result<CashFlow> {
     let mut income: Vec<IncomeStream> = sqlx::query_as(&format!(
         "SELECT COALESCE(NULLIF(TRIM(t.merchant_name), ''), t.name) AS label, 'income' AS source,
-                NULL AS business_id, SUM(t.amount_cents) AS cents
+                NULL AS business_id, NULL AS account_id, SUM(t.amount_cents) AS cents
          FROM transactions t JOIN accounts a ON a.id = t.account_id {CATEGORY_JOIN}
-         WHERE a.business_id IS NULL AND c.kind = 'income' AND t.amount_cents > 0 AND t.date >= ? AND t.date <= ?
-         GROUP BY label"
+         WHERE a.business_id IS NULL AND c.kind = 'income' AND t.amount_cents > 0 AND NOT {IS_INTEREST}
+           AND t.date >= ?1 AND t.date <= ?2
+         GROUP BY label
+         UNION ALL
+         SELECT {name} || ' interest', 'interest', NULL, a.id, SUM(t.amount_cents)
+         FROM transactions t JOIN accounts a ON a.id = t.account_id
+         WHERE a.business_id IS NULL AND {IS_INTEREST} AND t.date >= ?1 AND t.date <= ?2
+         GROUP BY a.id",
+        name = super::account::display_name("a", true)
     ))
     .bind(start)
     .bind(end)
     .fetch_all(db)
     .await?;
     let payouts: Vec<IncomeStream> = sqlx::query_as(
-        "SELECT b.name AS label, 'payout' AS source, b.id AS business_id, SUM(p.amount_cents) AS cents
+        "SELECT b.name AS label, 'payout' AS source, b.id AS business_id, NULL AS account_id, SUM(p.amount_cents) AS cents
          FROM business_payouts p JOIN businesses b ON b.id = p.business_id
          WHERE p.date >= ? AND p.date <= ? GROUP BY b.id",
     )

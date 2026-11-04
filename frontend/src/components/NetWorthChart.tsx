@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerE
 import { api } from '../api/client'
 import type { NetWorthPoint } from '../api/types'
 import { formatMoney } from '../format'
+import { HIDDEN_AMOUNT, useAmountsShown } from '../lib/privacy'
+import { NetWorthToggle } from './NetWorthToggle'
+import { NetWorthBreakdown, type BreakdownScale } from './NetWorthBreakdown'
 import { Segmented } from './Segmented'
 
 type Range = '1m' | '3m' | '6m' | '1y' | 'all'
@@ -29,6 +32,14 @@ function niceStep(v: number): number {
   return ([1, 2, 2.5, 5, 10].find((m) => m * p >= v) ?? 10) * p
 }
 
+type View = 'performance' | 'breakdown'
+
+const SCALES: { value: BreakdownScale; label: string }[] = [
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'quarterly', label: 'Quarterly' },
+  { value: 'yearly', label: 'Yearly' },
+]
+
 const HEIGHT = 240
 const M = { top: 12, right: 16, bottom: 28, left: 72 }
 
@@ -36,15 +47,19 @@ const M = { top: 12, right: 16, bottom: 28, left: 72 }
 export function NetWorthChart({ refreshKey }: { refreshKey: unknown }) {
   const [today] = useState(() => new Date())
   const [range, setRange] = useState<Range>('3m')
+  const [view, setView] = useState<View>('performance')
+  const [scale, setScale] = useState<BreakdownScale>('monthly')
   const [result, setResult] = useState<{ key: string; points: NetWorthPoint[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [hover, setHover] = useState<number | null>(null)
+  const [shown, toggleShown] = useAmountsShown()
   const [width, setWidth] = useState(800)
   const box = useRef<HTMLDivElement>(null)
 
   const def = RANGES.find((r) => r.value === range)!
   const end = iso(today)
-  const start = def.days ? iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() - def.days)) : null
+  // Breakdown always uses all history (about 3 years) and groups it by period.
+  const start = view === 'performance' && def.days ? iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() - def.days)) : null
   const key = `${start ?? 'all'}:${end}`
 
   useEffect(() => {
@@ -68,7 +83,8 @@ export function NetWorthChart({ refreshKey }: { refreshKey: unknown }) {
     const ro = new ResizeObserver(([entry]) => setWidth(Math.max(280, Math.round(entry.contentRect.width))))
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+    // The frame is re-created when switching back from Breakdown (or after an error), so re-attach.
+  }, [view, error])
 
   const points = useMemo(() => result?.points ?? [], [result])
   const stale = result?.key !== key
@@ -117,10 +133,12 @@ export function NetWorthChart({ refreshKey }: { refreshKey: unknown }) {
     <section className="panel net-worth-chart">
       <div className="panel-header">
         <div>
-          <h2>Net worth</h2>
+          <h2 className="with-toggle">
+            Net worth <NetWorthToggle shown={shown} onToggle={toggleShown} what="net worth" />
+          </h2>
           <div className="spending-summary">
-            <span className="value">{result ? formatMoney(last) : '—'}</span>
-            {result && n > 1 && (
+            <span className="value">{!result ? '—' : shown ? formatMoney(last) : HIDDEN_AMOUNT}</span>
+            {result && n > 1 && shown && view === 'performance' && (
               <span className="muted">
                 {change >= 0 ? '+' : '−'}
                 {formatMoney(Math.abs(change))}
@@ -129,14 +147,37 @@ export function NetWorthChart({ refreshKey }: { refreshKey: unknown }) {
             )}
           </div>
         </div>
-        <Segmented label="Time range" options={RANGES} value={range} onChange={(r) => {
-            setRange(r)
-            setHover(null)
-          }} />
+        <div className="panel-controls">
+          <select className="select" value={view} onChange={(e) => setView(e.target.value as View)} aria-label="Chart">
+            <option value="performance">Performance</option>
+            <option value="breakdown">Breakdown</option>
+          </select>
+          {view === 'performance' ? (
+            <Segmented
+              label="Time range"
+              options={RANGES}
+              value={range}
+              onChange={(r) => {
+                setRange(r)
+                setHover(null)
+              }}
+            />
+          ) : (
+            <Segmented label="Breakdown by" options={SCALES} value={scale} onChange={setScale} />
+          )}
+        </div>
       </div>
 
       {error ? (
         <p className="empty">Couldn't load net worth history: {error}</p>
+      ) : view === 'breakdown' ? (
+        <div className={stale ? 'stale' : undefined}>
+          <NetWorthBreakdown points={points} scale={scale} />
+          <p className="chart-note muted">
+            Balances at the end of each period (the current one is as of today), estimated from today&apos;s balances and your transaction history.
+            Investments and manual accounts are counted at today&apos;s value.
+          </p>
+        </div>
       ) : (
         <>
           <div className={`chart-frame${stale ? ' stale' : ''}`} ref={box}>
@@ -144,7 +185,7 @@ export function NetWorthChart({ refreshKey }: { refreshKey: unknown }) {
               width="100%"
               viewBox={`0 0 ${width} ${HEIGHT}`}
               role="img"
-              aria-label={`Estimated net worth, ${def.phrase}: ${formatMoney(first)} to ${formatMoney(last)}. Use left and right arrow keys to read each day.`}
+              aria-label={shown ? `Estimated net worth, ${def.phrase}: ${formatMoney(first)} to ${formatMoney(last)}. Use left and right arrow keys to read each day.` : `Estimated net worth, ${def.phrase}. Use left and right arrow keys to read each day.`}
               tabIndex={0}
               onPointerMove={(e) => n > 0 && setHover(indexFromPointer(e))}
               onPointerLeave={() => setHover(null)}

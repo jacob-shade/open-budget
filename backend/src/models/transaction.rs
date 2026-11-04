@@ -106,13 +106,14 @@ impl Transaction {
         db: E,
         filter: &TransactionFilter,
     ) -> sqlx::Result<Vec<Transaction>> {
-        let mut q = QueryBuilder::<Sqlite>::new(
+        let mut q = QueryBuilder::<Sqlite>::new(format!(
             "SELECT t.id, t.account_id, t.amount_cents, t.iso_currency_code, t.date, t.authorized_date,
                     t.name, t.merchant_name, t.category_primary, t.category_detailed, t.pending, t.logo_url,
-                    a.name AS account_name, c.id AS category_id, c.name AS category_name, c.emoji AS category_emoji,
+                    {account_name} AS account_name, c.id AS category_id, c.name AS category_name, c.emoji AS category_emoji,
                     c.kind AS category_kind, t.category_id IS NOT NULL AS category_overridden
              FROM transactions t JOIN accounts a ON a.id = t.account_id",
-        );
+            account_name = super::account::display_name("a", true)
+        ));
         q.push(CATEGORY_JOIN).push(" WHERE 1=1");
         push_filters(&mut q, filter);
         q.push(" ORDER BY t.date DESC, t.id LIMIT ")

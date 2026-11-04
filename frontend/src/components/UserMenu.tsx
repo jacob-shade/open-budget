@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { User } from '../api/types'
 import { useTheme, type ThemeChoice } from '../hooks/useTheme'
+import { useAmountsDefault, type AmountsDefault } from '../lib/privacy'
 
 const THEMES: { value: ThemeChoice; label: string }[] = [
   { value: 'light', label: 'Light' },
@@ -8,17 +9,23 @@ const THEMES: { value: ThemeChoice; label: string }[] = [
   { value: 'system', label: 'System' },
 ]
 
+const AMOUNTS: { value: AmountsDefault; label: string }[] = [
+  { value: 'hidden', label: 'Hidden' },
+  { value: 'shown', label: 'Shown' },
+]
+
 interface Props {
   user: User
   onSignOut: () => void
 }
 
-/** Profile row at the bottom of the sidebar; opens a menu upward with the theme picker and sign-out. */
+/** Profile row at the bottom of the sidebar; opens a menu upward with the theme picker, the default for sensitive amounts, and sign-out. */
 export function UserMenu({ user, onSignOut }: Props) {
   const [open, setOpen] = useState(false)
   const [imgFailed, setImgFailed] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   const { theme, setTheme } = useTheme()
+  const { amountsDefault, setAmountsDefault } = useAmountsDefault()
 
   useEffect(() => {
     if (!open) return
@@ -59,6 +66,22 @@ export function UserMenu({ user, onSignOut }: Props) {
                 onClick={() => setTheme(t.value)}
               >
                 {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="user-dropdown-label" id="amounts-label">
+            Sensitive amounts
+          </div>
+          <div className="theme-switch" role="radiogroup" aria-labelledby="amounts-label">
+            {AMOUNTS.map((a) => (
+              <button
+                key={a.value}
+                className={`theme-option${amountsDefault === a.value ? ' selected' : ''}`}
+                role="radio"
+                aria-checked={amountsDefault === a.value}
+                onClick={() => setAmountsDefault(a.value)}
+              >
+                {a.label}
               </button>
             ))}
           </div>

@@ -41,6 +41,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = Config::from_env()?;
     let pool = db::connect(&config.database_url, &config.database_key).await?;
+
+    // Maintenance commands (run with the app stopped), e.g. `open-budget forget-plaid-items --yes`.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(cmd) = args.first() {
+        return maintenance(&pool, &config.plaid_env, cmd, &args[1..]).await;
+    }
+
     let plaid = Arc::new(PlaidClient::new(&config));
     let google = Arc::new(GoogleClient::new(&config));
     let config = Arc::new(config);
@@ -54,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let app = app.layer(TraceLayer::new_for_http());
 
-    // Defaults to localhost only: there is no auth layer yet, and this server holds bank access tokens.
+    // Defaults to localhost only (BIND_ADDR); every data route also requires Google sign-in + MFA.
     let addr = SocketAddr::from((config.bind_addr, config.port));
     tracing::info!(
         "listening on http://{addr} (public url: {}, plaid env: {}, {} allowed account(s))",
@@ -65,4 +72,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// One-off maintenance commands; the server doesn't start.
+async fn maintenance(pool: &sqlx::SqlitePool, env: &str, cmd: &str, args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    match cmd {
+        // After switching PLAID_ENV (e.g. sandbox -> production), connections from the old environment
+        // can't be revoked with the new keys. This deletes only those, locally, with their accounts and
+        // transactions; connections from the current environment are kept.
+        "forget-plaid-items" => {
+            let items = models::item::Item::all(pool).await?;
+            let stale: Vec<_> = items.iter().filter(|i| i.environment() != env).collect();
+            for i in &items {
+                let fate = if i.environment() == env { "keep" } else { "delete" };
+                println!("  [{fate}] {} ({}, {})", i.institution_name.as_deref().unwrap_or("Unknown institution"), i.environment(), i.id);
+            }
+            if stale.is_empty() {
+                println!("Nothing to delete: every connection belongs to the current Plaid environment ({env}).");
+                return Ok(());
+            }
+            if !args.iter().any(|a| a == "--yes") {
+                println!("Would delete {} connection(s) not from {env}, with their accounts and transactions. Re-run with --yes to delete.", stale.len());
+                return Ok(());
+            }
+            let (items, accounts, transactions) = models::item::Item::forget_other_environments(pool, env).await?;
+            println!("Deleted {items} connection(s), {accounts} account(s) and {transactions} transaction(s). Plaid was not contacted.");
+            Ok(())
+        }
+        other => Err(format!("unknown command '{other}' (available: forget-plaid-items [--yes])").into()),
+    }
 }

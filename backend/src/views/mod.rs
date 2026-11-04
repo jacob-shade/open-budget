@@ -44,6 +44,12 @@ pub struct AccountView {
     /// Liabilities (credit cards, loans) count against net worth.
     pub is_liability: bool,
     pub business_id: Option<i64>,
+    /// Entered by hand rather than linked through Plaid.
+    pub is_manual: bool,
+    /// Interest rate you entered, in basis points (3.50% = 350).
+    pub apy_bps: Option<i64>,
+    /// Minimum monthly payment (manual loans and credit cards).
+    pub min_payment_cents: Option<i64>,
     pub updated_at: String,
 }
 
@@ -65,6 +71,9 @@ impl From<Account> for AccountView {
             currency: a.iso_currency_code,
             is_liability,
             business_id: a.business_id,
+            is_manual: a.is_manual,
+            apy_bps: a.apy_bps,
+            min_payment_cents: a.min_payment_cents,
             updated_at: a.updated_at,
         }
     }
@@ -189,4 +198,8 @@ impl From<crate::models::transaction::DailySpending> for DailySpendingView {
 pub struct NetWorthPointView {
     pub date: String,
     pub net_worth_cents: i64,
+    /// What you own (cash, investments, other) at the end of the day.
+    pub assets_cents: i64,
+    /// What you owe (credit cards, loans) at the end of the day, as a positive amount.
+    pub debts_cents: i64,
 }

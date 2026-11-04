@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { AccountGroup } from '../lib/accountGroups'
 import { formatMoney } from '../format'
+import { HIDDEN_AMOUNT, useAmountsShown } from '../lib/privacy'
+import { NetWorthToggle } from './NetWorthToggle'
 import { Segmented } from './Segmented'
 
 type Mode = 'amount' | 'percent'
@@ -13,6 +15,7 @@ const MODES: { value: Mode; label: string }[] = [
 /** Assets and liabilities broken down by type; % shows each type's share of its side. */
 export function AccountsSummary({ groups }: { groups: AccountGroup[] }) {
   const [mode, setMode] = useState<Mode>('amount')
+  const [shown, toggleShown] = useAmountsShown()
   const assets = groups.filter((g) => !g.liability && (g.key !== 'other' || g.accounts.length > 0))
   const liabilities = groups.filter((g) => g.liability)
   const assetTotal = assets.reduce((s, g) => s + g.totalCents, 0)
@@ -22,7 +25,9 @@ export function AccountsSummary({ groups }: { groups: AccountGroup[] }) {
     <div className="summary-side">
       <div className="summary-head">
         <h3>{title}</h3>
-        <span className={kind === 'liability' && total > 0 ? 'negative' : ''}>{mode === 'amount' ? formatMoney(total) : total > 0 ? '100%' : '—'}</span>
+        <span className={kind === 'liability' && total > 0 ? 'negative' : ''}>
+          {mode === 'amount' ? (shown ? formatMoney(total) : HIDDEN_AMOUNT) : total > 0 ? '100%' : '—'}
+        </span>
       </div>
       <ul>
         {list.map((g) => {
@@ -33,7 +38,7 @@ export function AccountsSummary({ groups }: { groups: AccountGroup[] }) {
               <span className="summary-track" aria-hidden="true">
                 <span className={`summary-bar ${kind}`} style={{ width: `${share * 100}%` }} />
               </span>
-              <span className="summary-value">{mode === 'amount' ? formatMoney(g.totalCents) : `${(share * 100).toFixed(1)}%`}</span>
+              <span className="summary-value">{mode === 'amount' ? (shown ? formatMoney(g.totalCents) : HIDDEN_AMOUNT) : `${(share * 100).toFixed(1)}%`}</span>
             </li>
           )
         })}
@@ -44,14 +49,18 @@ export function AccountsSummary({ groups }: { groups: AccountGroup[] }) {
   return (
     <section className="panel accounts-summary">
       <div className="panel-header">
-        <h2>Summary</h2>
+        <h2 className="with-toggle">
+          Summary <NetWorthToggle shown={shown} onToggle={toggleShown} what="summary amounts" />
+        </h2>
         <Segmented label="Show as" options={MODES} value={mode} onChange={setMode} />
       </div>
       {side('Assets', assets, assetTotal, 'asset')}
       {side('Liabilities', liabilities, liabilityTotal, 'liability')}
       <div className="summary-net">
-        <span>Net worth</span>
-        <strong>{formatMoney(assetTotal - liabilityTotal)}</strong>
+        <span className="with-toggle">
+          Net worth <NetWorthToggle shown={shown} onToggle={toggleShown} what="summary amounts" />
+        </span>
+        <strong>{shown ? formatMoney(assetTotal - liabilityTotal) : HIDDEN_AMOUNT}</strong>
       </div>
     </section>
   )

@@ -3,6 +3,8 @@ import { api } from '../api/client'
 import type { Bucket, Budget, BudgetPercentages } from '../api/types'
 import { formatMoney } from '../format'
 import { centsToInput, parseCents } from '../lib/money'
+import { CategorySettingsDialog } from '../components/CategorySettingsDialog'
+import { Icon } from '../components/Icon'
 import { EmojiField } from '../components/ManageCategories'
 import { Segmented } from '../components/Segmented'
 
@@ -132,6 +134,18 @@ export function BudgetPage({ refreshKey }: { refreshKey: unknown }) {
 
 // ---------- income ----------
 
+/** 350 → "3.50%". */
+const pct = (bps: number | null) => (bps == null ? '' : `${(bps / 100).toFixed(2)}%`)
+
+/** Explains a calculated interest plan. */
+function interestNote(r: Budget['income'][number]) {
+  return r.balance_cents != null && r.apy_bps != null
+    ? `Calculated: ${formatMoney(r.balance_cents)} balance at the start of the period × ${pct(r.apy_bps)} ÷ 12`
+    : 'Calculated from the balance and APY'
+}
+
+const interestRows = (data: Budget) => data.income.filter((r) => r.source === 'interest')
+
 function PlannedCell({ value, onSave, label }: { value: number | null; onSave: (cents: number | null) => void; label: string }) {
   const [draft, setDraft] = useState<string | null>(null)
   // Empty removes the plan; an invalid amount is ignored (the old value comes back).
@@ -190,12 +204,13 @@ function IncomeTable({ data, months, onPlan }: { data: Budget; months: number; o
               <th className="num">Planned{months > 1 ? ' / month' : ''}</th>
               <th className="num">Actual</th>
               <th className="num">Remaining</th>
+              <th aria-label="Actions" />
             </tr>
           </thead>
           <tbody>
             {data.income.length === 0 && (
               <tr>
-                <td colSpan={4} className="empty compact">
+                <td colSpan={5} className="empty compact">
                   No income yet. Add what you expect below.
                 </td>
               </tr>
@@ -203,16 +218,35 @@ function IncomeTable({ data, months, onPlan }: { data: Budget; months: number; o
             {data.income.map((r) => {
               const planned = r.planned_monthly_cents != null ? r.planned_monthly_cents * months : null
               const remaining = planned != null ? planned - r.actual_cents : null
-              const name = r.source === 'payout' ? `💼 ${r.label} payouts` : r.label
+              const name = r.source === 'payout' ? `💼 ${r.label} payouts` : r.source === 'interest' ? `📈 ${r.label} (${pct(r.apy_bps)} APY)` : r.label
               return (
                 <tr key={`${r.source}:${r.label}`}>
                   <td>{name}</td>
                   <td className="num">
-                    <PlannedCell value={r.planned_monthly_cents} label={`Planned per month for ${name}`} onSave={(c) => onPlan(r.source, r.label, c)} />
+                    {r.source === 'interest' ? (
+                      <span className="computed-plan" title={interestNote(r)}>
+                        {r.planned_monthly_cents != null ? formatMoney(r.planned_monthly_cents) : '—'}
+                      </span>
+                    ) : (
+                      <PlannedCell value={r.planned_monthly_cents} label={`Planned per month for ${name}`} onSave={(c) => onPlan(r.source as 'income' | 'payout', r.label, c)} />
+                    )}
                   </td>
                   <td className="num">{formatMoney(r.actual_cents)}</td>
                   <td className={`num${remaining != null && remaining < 0 ? ' positive' : ''}`}>
                     {remaining == null ? '—' : remaining < 0 ? `+${formatMoney(-remaining)} over` : formatMoney(remaining)}
+                  </td>
+                  <td className="row-actions">
+                    {/* Removes the plan. A source with income this period stays listed, with its actual amount. */}
+                    {r.planned_monthly_cents != null && r.source !== 'interest' && (
+                      <button
+                        className="icon-button small"
+                        onClick={() => onPlan(r.source as 'income' | 'payout', r.label, null)}
+                        aria-label={`Remove ${name}`}
+                        title={r.actual_cents > 0 ? 'Remove the plan (income received this period still shows)' : 'Remove'}
+                      >
+                        ×
+                      </button>
+                    )}
                   </td>
                 </tr>
               )
@@ -226,6 +260,7 @@ function IncomeTable({ data, months, onPlan }: { data: Budget; months: number; o
               <th className={`num${plannedTotal - actualTotal < 0 ? ' positive' : ''}`}>
                 {plannedTotal - actualTotal < 0 ? `+${formatMoney(actualTotal - plannedTotal)} over` : formatMoney(plannedTotal - actualTotal)}
               </th>
+              <th />
             </tr>
           </tfoot>
         </table>
@@ -256,7 +291,10 @@ function Buckets({ data, months, onSave }: { data: Budget; months: number; onSav
   const sum = pct.fixed_pct + pct.future_pct + pct.fun_pct
   const changed = draft !== null && (draft.fixed_pct !== data.percentages.fixed_pct || draft.future_pct !== data.percentages.future_pct || draft.fun_pct !== data.percentages.fun_pct)
   const { base, fromPlan } = incomeBase(data, months)
-  const spent = (b: Bucket) => data.categories.filter((c) => c.bucket === b).reduce((s, c) => s + c.actual_cents, 0)
+  const spent = (b: Bucket) =>
+    data.categories.filter((c) => c.bucket === b).reduce((s, c) => s + c.actual_cents, 0) +
+    // Interest stays in the savings account, so it counts as set aside.
+    (b === 'future' ? interestRows(data).reduce((s, r) => s + r.actual_cents, 0) : 0)
   const setPct = (k: keyof BudgetPercentages, v: number) => setDraft({ ...pct, [k]: Math.max(0, Math.min(100, Math.round(v) || 0)) })
 
   return (
@@ -404,6 +442,7 @@ function BucketLists({ data, months, onChange }: { data: Budget; months: number;
   const move = (id: number, bucket: Bucket | 'none') => onChange(() => api.updateCategory(id, { bucket }))
   const plan = (id: number, cents: number | null) => onChange(() => api.setCategoryPlan(id, cents))
   const { base } = incomeBase(data, months)
+  const [settingsFor, setSettingsFor] = useState<Budget['categories'][number] | null>(null)
   const notBudgeted = data.categories.filter((c) => c.bucket === null)
   const perMonth = months > 1 ? ' / month' : ''
 
@@ -411,14 +450,19 @@ function BucketLists({ data, months, onChange }: { data: Budget; months: number;
     list.map((c) => {
       const planned = c.planned_monthly_cents != null ? c.planned_monthly_cents * months : null
       return (
-        <tr key={c.id}>
+        <tr key={c.id} className="category-row-hover">
           <td>
-            <span className="bucket-category">
-              <span className="category-option">
-                <span aria-hidden="true">{c.emoji}</span>
-                {c.name}
+            <span className="category-cell">
+              <span className="bucket-category">
+                <span className="category-option">
+                  <span aria-hidden="true">{c.emoji}</span>
+                  {c.name}
+                </span>
+                {c.kind === 'transfer' && <span className="muted">Transfer</span>}
               </span>
-              {c.kind === 'transfer' && <span className="muted">Transfer</span>}
+              <button type="button" className="icon-button small cog-button" onClick={() => setSettingsFor(c)} aria-label={`Settings for ${c.name}`} title="Category settings">
+                <Icon name="cog" size={16} />
+              </button>
             </span>
           </td>
           <td className="num">
@@ -455,9 +499,12 @@ function BucketLists({ data, months, onChange }: { data: Budget; months: number;
     <>
       {BUCKETS.map((b) => {
         const list = data.categories.filter((c) => c.bucket === b.key)
-        const plannedTotal = list.reduce((s, c) => s + (c.planned_monthly_cents ?? 0) * months, 0)
-        const actualTotal = list.reduce((s, c) => s + c.actual_cents, 0)
-        const anyPlanned = list.some((c) => c.planned_monthly_cents != null)
+        // Interest on savings is reinvested automatically, so it sits in Future.
+        const interest = b.key === 'future' ? interestRows(data) : []
+        const plannedTotal =
+          list.reduce((s, c) => s + (c.planned_monthly_cents ?? 0) * months, 0) + interest.reduce((s, r) => s + (r.planned_monthly_cents ?? 0) * months, 0)
+        const actualTotal = list.reduce((s, c) => s + c.actual_cents, 0) + interest.reduce((s, r) => s + r.actual_cents, 0)
+        const anyPlanned = list.some((c) => c.planned_monthly_cents != null) || interest.some((r) => r.planned_monthly_cents != null)
         const target = Math.round((base * data.percentages[b.pct]) / 100)
         return (
           <section key={b.key} className={`panel bucket-list ${b.key}`}>
@@ -468,6 +515,7 @@ function BucketLists({ data, months, onChange }: { data: Budget; months: number;
                 </span>
                 <span className="heading-total">
                   {list.length} {list.length === 1 ? 'category' : 'categories'}
+                  {interest.length > 0 && ` + interest`}
                 </span>
               </h2>
               {target > 0 && (
@@ -477,13 +525,39 @@ function BucketLists({ data, months, onChange }: { data: Budget; months: number;
                 </span>
               )}
             </div>
-            {list.length === 0 ? (
+            {list.length === 0 && interest.length === 0 ? (
               <p className="empty compact">No categories yet.</p>
             ) : (
               <div className="table-wrap">
                 <table className="budget-table">
                   {head}
-                  <tbody>{rows(list)}</tbody>
+                  <tbody>
+                    {interest.map((r) => {
+                      const planned = r.planned_monthly_cents != null ? r.planned_monthly_cents * months : null
+                      return (
+                        <tr key={`interest:${r.label}`} className="interest-row">
+                          <td>
+                            <span className="bucket-category">
+                              <span className="category-option">
+                                <span aria-hidden="true">📈</span>
+                                {r.label}
+                              </span>
+                              <span className="muted">Reinvested automatically · {pct(r.apy_bps)} APY</span>
+                            </span>
+                          </td>
+                          <td className="num">
+                            <span className="computed-plan" title={interestNote(r)}>
+                              {r.planned_monthly_cents != null ? formatMoney(r.planned_monthly_cents) : '—'}
+                            </span>
+                          </td>
+                          <td className="num">{formatMoney(r.actual_cents)}</td>
+                          {remainingCell(planned, r.actual_cents)}
+                          <td className="move-cell muted-cell">Auto</td>
+                        </tr>
+                      )
+                    })}
+                    {rows(list)}
+                  </tbody>
                   <tfoot>
                     <tr>
                       <th>Total</th>
@@ -512,6 +586,9 @@ function BucketLists({ data, months, onChange }: { data: Budget; months: number;
           </section>
         )
       })}
+      {settingsFor && (
+        <CategorySettingsDialog category={settingsFor} onClose={() => setSettingsFor(null)} onSaved={() => void onChange(async () => {})} />
+      )}
       {notBudgeted.length > 0 && (
         <details className="panel not-budgeted">
           <summary>
